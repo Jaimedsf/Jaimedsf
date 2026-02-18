@@ -3,17 +3,17 @@
 
 ---
 
-## 📈 Mission Telemetry
-
-<!-- Stats card gerado automaticamente -->
-![Mission Telemetry](./assets/generated/stats-card.svg)
-
----
-
 ## 🌌 Tech Stack Galaxy
 
 <!-- Tech stack gerado automaticamente -->
 ![Tech Stack](./assets/generated/tech-stack.svg)
+
+---
+
+## 📈 Mission Telemetry
+
+<!-- Stats card gerado automaticamente -->
+![Mission Telemetry](./assets/generated/stats-card.svg)
 
 ---
 
