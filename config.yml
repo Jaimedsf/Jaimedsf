@@ -1,0 +1,81 @@
+# Galaxy Profile - config.yml
+# Personalized for: Jaime da Silva Ferreira
+
+username: jaimedsf
+
+profile:
+  name: Jaime da Silva Ferreira
+  tagline: Full-Stack Developer | Fortaleza - CE / Brasil
+  company: ""
+  location: Fortaleza, CE - Brasil
+  bio: Desenvolvedor Full-Stack apaixonado por construir solucoes robustas com tecnologias modernas.
+  philosophy: Code is craft. Build with purpose.
+
+social:
+  email: Jaime.silva.ferreira2@gmail.com
+  linkedin: jaime-da-silva-ferreira-982142329
+  website: ""
+
+# 3 areas de foco (galaxy_arms) - cada uma com nome, cor e tecnologias
+galaxy_arms:
+  - name: Backend
+    color: synapse_cyan
+    items:
+      - PHP
+      - Laravel
+      - Java
+      - Spring Boot
+      - Node.js
+
+  - name: Frontend
+    color: dendrite_violet
+    items:
+      - TypeScript
+      - JavaScript
+      - React
+      - Next.js
+      - Tailwind CSS
+      - Ionic
+
+  - name: Infrastructure
+    color: axon_amber
+    items:
+      - Docker
+      - Jenkins
+      - PostgreSQL
+      - MySQL
+      - Oracle
+      - Firebase
+      - MariaDB
+
+# Projetos em destaque (use nomes de repos seus reais)
+# arm: 0 = Backend, 1 = Frontend, 2 = Infrastructure
+projects:
+  - repo: jaimedsf
+    arm: 0
+    description: Perfil pessoal no GitHub
+  # Adicione mais projetos abaixo:
+  # - repo: nome-do-repo
+  #   arm: 1
+  #   description: Descricao curta do projeto
+
+# Metricas exibidas no card de estatisticas
+stats:
+  metrics:
+    - commits
+    - stars
+    - prs
+    - issues
+    - repos
+
+# Configuracao de linguagens
+languages:
+  exclude:
+    - HTML
+    - CSS
+  max_display: 6
+
+# Cores do tema (opcional - remova ou comente para usar o padrao)
+# theme:
+#   background: "#0a0a1a"
+#   core_glow: "#00f5ff"
