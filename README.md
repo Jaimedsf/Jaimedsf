@@ -3,20 +3,6 @@
 
 ---
 
-# 👋 Hello, World!
-
-Hello! I'm **Jaime da Silva Ferreira**, a Full-Stack Developer from Fortaleza – CE / Brasil.
-Here you'll find a summary of my **technical skills**, **professional experience**, and **academic background**.
-
----
-
-## 📫 Contact
-
-- ✉️ Email: [Jaime.silva.ferreira2@gmail.com](mailto:Jaime.silva.ferreira2@gmail.com)
-- 🔗 LinkedIn: [linkedin.com/in/jaime-da-silva-ferreira-982142329](https://www.linkedin.com/in/jaime-da-silva-ferreira-982142329)
-
----
-
 ## 📈 Mission Telemetry
 
 <!-- Stats card gerado automaticamente -->
@@ -35,6 +21,13 @@ Here you'll find a summary of my **technical skills**, **professional experience
 
 <!-- Projetos gerados automaticamente -->
 ![Featured Projects](./assets/generated/projects-constellation.svg)
+
+---
+
+## 📫 Contact
+
+- ✉️ Email: [Jaime.silva.ferreira2@gmail.com](mailto:Jaime.silva.ferreira2@gmail.com)
+- 🔗 LinkedIn: [linkedin.com/in/jaime-da-silva-ferreira-982142329](https://www.linkedin.com/in/jaime-da-silva-ferreira-982142329)
 
 ---
 
