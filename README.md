@@ -27,7 +27,7 @@
 ## 📫 Contact
 
 - ✉️ Email: [Jaime.silva.ferreira2@gmail.com](mailto:Jaime.silva.ferreira2@gmail.com)
-- 🔗 LinkedIn: [linkedin.com/in/jaime-da-silva-ferreira-982142329](https://www.linkedin.com/in/jaime-da-silva-ferreira-982142329)
+- 🔗 LinkedIn: [linkedin.com/in/jaimedsf](https://www.linkedin.com/in/jaimedsf)
 
 ---
 
