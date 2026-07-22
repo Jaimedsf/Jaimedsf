@@ -166,14 +166,30 @@ class GitHubAPI:
         }
 
     def _paginate_repos(self):
-        """Yield pages of owned repos from the REST API."""
+        """Yield pages of repos from the REST API.
+
+        With a token, uses the authenticated /user/repos endpoint with
+        affiliation=owner,organization_member so private repos (including
+        ones in orgs the token's user belongs to) are counted too — needed
+        to reflect private work without ever exposing repo names on the
+        page (only aggregate byte counts are used downstream).
+        Without a token, falls back to the public per-user endpoint
+        (owned public repos only).
+        """
         page = 1
         while True:
-            repos_resp = self._request(
-                "GET",
-                f"{self.REST_URL}/users/{self.username}/repos",
-                params={"per_page": 100, "page": page, "type": "owner"},
-            )
+            if self.token:
+                url = f"{self.REST_URL}/user/repos"
+                params = {
+                    "per_page": 100,
+                    "page": page,
+                    "affiliation": "owner,organization_member",
+                }
+            else:
+                url = f"{self.REST_URL}/users/{self.username}/repos"
+                params = {"per_page": 100, "page": page, "type": "owner"}
+
+            repos_resp = self._request("GET", url, params=params)
             repos_resp.raise_for_status()
             repos = repos_resp.json()
             if not repos:
@@ -205,6 +221,9 @@ class GitHubAPI:
             for repo in repos:
                 if repo.get("fork"):
                     continue
+                repo_label = (
+                    "<private repo>" if repo.get("private") else repo.get("full_name", "unknown")
+                )
                 try:
                     lang_resp = self._request("GET", repo["languages_url"])
                     if lang_resp.status_code == 200:
@@ -213,13 +232,13 @@ class GitHubAPI:
                     else:
                         logger.warning(
                             "Could not fetch languages for %s (HTTP %d)",
-                            repo.get("full_name", "unknown"),
+                            repo_label,
                             lang_resp.status_code,
                         )
                 except requests.exceptions.RequestException as e:
                     logger.warning(
                         "Error fetching languages for %s: %s",
-                        repo.get("full_name", "unknown"),
+                        repo_label,
                         e,
                     )
         return languages
