@@ -35,8 +35,9 @@ class SVGBuilder:
         for an arm if no language landed on it (e.g. more arms than langs).
         """
         lang_config = self.config.get("languages", {})
+        header_max = len(self.galaxy_arms) * 6  # matches old static density (6 items/arm)
         lang_data = calculate_language_percentages(
-            self.languages, lang_config.get("exclude", []), lang_config.get("max_display", 8)
+            self.languages, lang_config.get("exclude", []), header_max
         )
         if not lang_data or not self.galaxy_arms:
             return self.galaxy_arms
