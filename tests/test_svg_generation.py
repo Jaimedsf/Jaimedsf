@@ -23,6 +23,18 @@ class TestSVGBuilder:
         svg = svg_builder.render_galaxy_header()
         assert "animate" in svg
 
+    def test_galaxy_header_shows_detected_languages_not_static_items(self, svg_builder):
+        """Header tech labels should come from real language data, not config's static items."""
+        svg = svg_builder.render_galaxy_header()
+        assert "Go" in svg  # from sample_languages, round-robined onto an arm
+        assert "React" not in svg  # static item, replaced since languages were detected
+
+    def test_galaxy_header_falls_back_to_static_items_without_language_data(self, sample_config):
+        config = validate_config(dict(sample_config))
+        builder = SVGBuilder(config, {}, {})
+        svg = builder.render_galaxy_header()
+        assert "React" in svg
+
     def test_render_stats_card_valid_svg(self, svg_builder):
         svg = svg_builder.render_stats_card()
         assert svg.strip().startswith("<svg")

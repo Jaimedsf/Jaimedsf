@@ -1,6 +1,7 @@
 """SVG Builder — orchestrator connecting config, stats, and templates."""
 
 from generator.templates import galaxy_header, stats_card, tech_stack, projects_constellation
+from generator.utils import calculate_language_percentages
 
 
 class SVGBuilder:
@@ -22,9 +23,30 @@ class SVGBuilder:
         return galaxy_header.render(
             config=self.config,
             theme=self.theme,
-            galaxy_arms=self.galaxy_arms,
+            galaxy_arms=self._arms_with_detected_languages(),
             projects=self.projects,
         )
+
+    def _arms_with_detected_languages(self) -> list:
+        """Swap each arm's static item list for real detected languages.
+
+        Keeps arm name/color from config, round-robins the top detected
+        languages across arms in order. Falls back to the configured items
+        for an arm if no language landed on it (e.g. more arms than langs).
+        """
+        lang_config = self.config.get("languages", {})
+        lang_data = calculate_language_percentages(
+            self.languages, lang_config.get("exclude", []), lang_config.get("max_display", 8)
+        )
+        if not lang_data or not self.galaxy_arms:
+            return self.galaxy_arms
+
+        names = [d["name"] for d in lang_data]
+        n = len(self.galaxy_arms)
+        return [
+            {**arm, "items": names[i::n]} if names[i::n] else arm
+            for i, arm in enumerate(self.galaxy_arms)
+        ]
 
     def render_stats_card(self) -> str:
         metrics = self.config["stats"]["metrics"]
