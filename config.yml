@@ -73,7 +73,7 @@ languages:
   exclude:
     - HTML
     - CSS
-  max_display: 6
+  max_display: 10
 
 # Cores do tema (opcional - remova ou comente para usar o padrao)
 # theme:
