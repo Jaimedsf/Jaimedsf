@@ -306,8 +306,8 @@
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="0.7s" repeatCount="indefinite"/>
     </circle>
     <line x1="416.4" y1="123.4" x2="411.7" y2="106.0" stroke="#a78bfa" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2"/>
-    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">Java</text>
-    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.85">Java</text>
+    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">PHP</text>
+    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.85">PHP</text>
     <circle cx="499.1" cy="119.3" r="2.5" fill="#a78bfa" opacity="0.85">
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="1.4s" repeatCount="indefinite"/>
     </circle>
@@ -342,8 +342,8 @@
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="0.7s" repeatCount="indefinite"/>
     </circle>
     <line x1="541.8" y1="166.4" x2="559.7" y2="168.1" stroke="#ffb020" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2"/>
-    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">PHP</text>
-    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.85">PHP</text>
+    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">Java</text>
+    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.85">Java</text>
     <circle cx="521.5" cy="187.1" r="2.5" fill="#ffb020" opacity="0.85">
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="1.4s" repeatCount="indefinite"/>
     </circle>
