@@ -270,8 +270,8 @@
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="0.7s" repeatCount="indefinite"/>
     </circle>
     <line x1="327.6" y1="174.9" x2="310.0" y2="178.5" stroke="#00d4ff" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2"/>
-    <text x="310.0" y="181.5" text-anchor="end" fill="#00d4ff" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">C#</text>
-    <text x="310.0" y="181.5" text-anchor="end" fill="#00d4ff" font-size="9" font-family="monospace" opacity="0.85">C#</text>
+    <text x="310.0" y="181.5" text-anchor="end" fill="#00d4ff" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">Go</text>
+    <text x="310.0" y="181.5" text-anchor="end" fill="#00d4ff" font-size="9" font-family="monospace" opacity="0.85">Go</text>
     <circle cx="267.0" cy="160.1" r="2.5" fill="#00d4ff" opacity="0.85">
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="1.4s" repeatCount="indefinite"/>
     </circle>
@@ -306,14 +306,14 @@
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="0.7s" repeatCount="indefinite"/>
     </circle>
     <line x1="416.4" y1="123.4" x2="411.7" y2="106.0" stroke="#a78bfa" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2"/>
-    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">PHP</text>
-    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.85">PHP</text>
+    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">C#</text>
+    <text x="411.7" y="109.0" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.85">C#</text>
     <circle cx="499.1" cy="119.3" r="2.5" fill="#a78bfa" opacity="0.85">
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="1.4s" repeatCount="indefinite"/>
     </circle>
     <line x1="499.1" y1="119.3" x2="515.3" y2="111.5" stroke="#a78bfa" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2"/>
-    <text x="515.3" y="114.5" text-anchor="start" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">Go</text>
-    <text x="515.3" y="114.5" text-anchor="start" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.85">Go</text>
+    <text x="515.3" y="114.5" text-anchor="start" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">Java</text>
+    <text x="515.3" y="114.5" text-anchor="start" fill="#a78bfa" font-size="9" font-family="monospace" opacity="0.85">Java</text>
     <circle cx="591.5" cy="130.0" r="2.5" fill="#a78bfa" opacity="0.85">
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="2.0999999999999996s" repeatCount="indefinite"/>
     </circle>
@@ -342,8 +342,8 @@
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="0.7s" repeatCount="indefinite"/>
     </circle>
     <line x1="541.8" y1="166.4" x2="559.7" y2="168.1" stroke="#ffb020" stroke-width="0.5" opacity="0.25" stroke-dasharray="2 2"/>
-    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">Java</text>
-    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.85">Java</text>
+    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.2" filter="url(#label-glow)">PHP</text>
+    <text x="559.7" y="171.1" text-anchor="start" fill="#ffb020" font-size="9" font-family="monospace" opacity="0.85">PHP</text>
     <circle cx="521.5" cy="187.1" r="2.5" fill="#ffb020" opacity="0.85">
       <animate attributeName="opacity" values="0.85;1;0.85" dur="5s" begin="1.4s" repeatCount="indefinite"/>
     </circle>
