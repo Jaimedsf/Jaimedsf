@@ -7,8 +7,9 @@ import tempfile
 import pytest
 import yaml
 
-from generator.cli_init import _build_config, _save_config, _detect_existing_config, _CONFIG_PATH
-from generator.config import validate_config
+from generator.cli_init import (_arm_entry, _build_config, _detect_existing_config, _project_entry, _save_config,
+                                _theme_section)
+from generator.config import LEGACY_THEME, validate_config
 
 
 @pytest.fixture
@@ -19,9 +20,9 @@ def essential():
 @pytest.fixture
 def arms():
     return [
-        {"name": "Frontend", "color": "dendrite_violet", "items": ["React", "TypeScript"]},
-        {"name": "Backend", "color": "synapse_cyan", "items": ["Python", "Node.js"]},
-        {"name": "DevOps", "color": "axon_amber", "items": ["Docker", "AWS"]},
+        {"name": "Frontend", "items": ["React", "TypeScript"]},
+        {"name": "Backend", "items": ["Python", "Node.js"]},
+        {"name": "DevOps", "items": ["Docker", "AWS"]},
     ]
 
 
@@ -36,17 +37,6 @@ def advanced():
         "projects": [
             {"repo": "testuser/project-a", "arm": 0, "description": "Project A"},
         ],
-        "theme": {
-            "void": "#080c14",
-            "nebula": "#0f1623",
-            "star_dust": "#1a2332",
-            "synapse_cyan": "#00d4ff",
-            "dendrite_violet": "#a78bfa",
-            "axon_amber": "#ffb020",
-            "text_bright": "#f1f5f9",
-            "text_dim": "#94a3b8",
-            "text_faint": "#64748b",
-        },
         "stats": {"metrics": ["commits", "stars", "prs"]},
         "languages": {"exclude": ["HTML"], "max_display": 6},
     }
@@ -73,7 +63,6 @@ class TestBuildConfig:
         assert config["profile"]["philosophy"] == "Code is art."
         assert config["social"]["email"] == "test@example.com"
         assert len(config["projects"]) == 1
-        assert config["theme"]["void"] == "#080c14"
         assert config["stats"]["metrics"] == ["commits", "stars", "prs"]
         assert config["languages"]["exclude"] == ["HTML"]
         assert config["languages"]["max_display"] == 6
@@ -131,5 +120,140 @@ class TestConfigValidation:
         config = _build_config(essential, arms, advanced)
         validated = validate_config(copy.deepcopy(config))
         assert validated["username"] == "testuser"
-        assert validated["theme"]["void"] == "#080c14"
         assert validated["stats"]["metrics"] == ["commits", "stars", "prs"]
+
+
+class TestLook:
+    """Theme and motion, the questions the Atlas redesign added."""
+
+    LOOK = {"dark": "cyanotype", "light": "deep-sky", "motion": False}
+
+    def test_the_answers_are_written_as_theme_and_motion(self, essential, arms):
+        config = _build_config(essential, arms, {}, self.LOOK)
+        assert config["theme"] == {"dark": "cyanotype", "light": "deep-sky"}
+        assert config["motion"] is False
+
+    def test_the_result_validates_with_those_choices(self, essential, arms):
+        validated = validate_config(_build_config(essential, arms, {}, self.LOOK))
+        assert validated["themes"] == {"dark": "cyanotype", "light": "deep-sky", "overrides": {}}
+        assert validated["motion"] is False
+
+    def test_without_the_answers_nothing_is_written_and_the_defaults_apply(self, essential, arms):
+        config = _build_config(essential, arms, {})
+        assert "theme" not in config and "motion" not in config
+        validated = validate_config(config)
+        assert validated["themes"]["dark"] == "deep-sky" and validated["motion"] is True
+
+    def test_a_colour_the_user_had_changed_is_kept(self):
+        before = dict(LEGACY_THEME, void="#101820", synapse_cyan="#00FFEE")
+        assert _theme_section("deep-sky", "cyanotype", before) == {
+            "dark": "deep-sky", "light": "cyanotype", "void": "#101820", "synapse_cyan": "#00FFEE"}
+
+    def test_the_nine_default_colours_of_version_one_are_not_written_again(self):
+        assert _theme_section("deep-sky", "deep-sky", dict(LEGACY_THEME)) == {"dark": "deep-sky", "light": "deep-sky"}
+        shouting = {key: value.upper() for key, value in LEGACY_THEME.items()}
+        assert _theme_section("deep-sky", "deep-sky", shouting) == {"dark": "deep-sky", "light": "deep-sky"}
+
+    def test_colours_that_no_longer_paint_anything_are_dropped(self):
+        before = {"nebula": "#222222", "star_dust": "#333333", "void": "#101820"}
+        assert _theme_section("deep-sky", "deep-sky", before) == {"dark": "deep-sky", "light": "deep-sky", "void": "#101820"}
+
+    def test_an_old_theme_that_is_not_a_mapping_is_ignored(self):
+        assert _theme_section("deep-sky", "deep-sky", None) == {"dark": "deep-sky", "light": "deep-sky"}
+        assert _theme_section("deep-sky", "deep-sky", "blue") == {"dark": "deep-sky", "light": "deep-sky"}
+
+    def test_a_config_with_kept_colours_validates_with_them_as_overrides(self, essential, arms):
+        look = dict(self.LOOK, colours={"void": "#101820"})
+        validated = validate_config(_build_config(essential, arms, {}, look))
+        assert validated["themes"]["overrides"] == {"void": "#101820"}
+
+
+class TestEntries:
+    def test_an_arm_has_a_name_and_items_and_no_colour(self):
+        assert _arm_entry("Backend", ["Python"], {"name": "Old", "color": "synapse_cyan", "items": ["Go"]}) == {
+            "name": "Backend", "items": ["Python"]}
+
+    def test_an_arm_keeps_the_repositories_pinned_to_it(self):
+        assert _arm_entry("Backend", ["Python"], {"repos": ["engine"]}) == {
+            "name": "Backend", "items": ["Python"], "repos": ["engine"]}
+
+    def test_a_project_left_to_its_languages_has_no_arm(self):
+        assert _project_entry("ada/engine", None, "Notes") == {"repo": "ada/engine", "description": "Notes"}
+
+    def test_a_project_pinned_to_an_arm_says_which(self):
+        assert _project_entry("ada/engine", 0, "Notes") == {"repo": "ada/engine", "arm": 0, "description": "Notes"}
+
+
+class Each(list):
+    """Answers to a question that is asked several times, in order."""
+
+
+class Scripted:
+    """Stands in for InquirerPy: every prompt answers from a script keyed by the start of its message."""
+
+    def __init__(self, answers):
+        self.answers, self.asked = answers, []
+
+    def _prompt(self, message="", default=None, **_options):
+        self.asked.append(message)
+        for start, answer in self.answers.items():
+            if message.startswith(start):
+                value = answer.pop(0) if isinstance(answer, Each) else answer
+                break
+        else:
+            value = default
+        return type("Prompt", (), {"execute": lambda _self: value})()
+
+    text = select = confirm = fuzzy = checkbox = _prompt
+
+
+class TestTheWholeWizard:
+    def run(self, monkeypatch, tmp_path, answers, existing=None):
+        from generator import cli_init
+        path = tmp_path / "config.yml"
+        if existing is not None:
+            path.write_text(yaml.safe_dump(existing), encoding="utf-8")
+        script = Scripted(answers)
+        monkeypatch.setattr(cli_init, "inquirer", script)
+        monkeypatch.setattr(cli_init, "_CONFIG_PATH", str(path))
+        cli_init.run_init()
+        return yaml.safe_load(path.read_text(encoding="utf-8")), script.asked
+
+    BASE = {
+        "GitHub username": "ada", "Display name": "Ada Lovelace", "Tagline": "Analyst",
+        "Arm 1 name": "Engines", "Arm 2 name": "Notes", "Arm 3 name": "Looms",
+        "Arm 1 technologies": ["Python"], "Arm 2 technologies": ["Markdown"], "Arm 3 technologies": ["Rust"],
+        "Configure advanced": False, "Generate SVGs now": False,
+    }
+
+    def test_a_first_run_asks_for_palettes_and_motion_and_writes_a_valid_config(self, monkeypatch, tmp_path):
+        answers = dict(self.BASE, **{"Palette for GitHub's dark": "cyanotype", "Palette for GitHub's light": "deep-sky",
+                                     "Animate the images": False})
+        config, asked = self.run(monkeypatch, tmp_path, answers)
+        assert config["theme"] == {"dark": "cyanotype", "light": "deep-sky"} and config["motion"] is False
+        assert [arm["name"] for arm in config["galaxy_arms"]] == ["Engines", "Notes", "Looms"]
+        assert all("color" not in arm for arm in config["galaxy_arms"])
+        assert not any("color" in question.lower() or "hex" in question.lower() for question in asked)
+        validate_config(config)
+
+    def test_editing_a_version_one_config_keeps_what_the_user_had_changed(self, monkeypatch, tmp_path, sample_config):
+        existing = copy.deepcopy(sample_config)
+        existing["theme"]["void"] = "#101820"
+        existing["galaxy_arms"][0]["repos"] = ["nebula-ui"]
+        answers = {"config.yml already exists": "edit", "Configure advanced": False, "Generate SVGs now": False}
+        config, _asked = self.run(monkeypatch, tmp_path, answers, existing)
+        assert config["theme"] == {"dark": "deep-sky", "light": "deep-sky", "void": "#101820"}
+        assert config["motion"] is True
+        assert config["galaxy_arms"][0] == {"name": "Frontend", "items": ["TypeScript", "React", "CSS"], "repos": ["nebula-ui"]}
+        assert validate_config(config)["themes"]["overrides"] == {"void": "#101820"}
+
+    def test_a_project_can_be_left_to_its_languages_or_pinned(self, monkeypatch, tmp_path):
+        answers = dict(self.BASE, **{
+            "Configure advanced": True, "Add a featured project": True, "Add another project": Each([True, False]),
+            "Repository": Each(["ada/engine", "ada/notes"]), "Which arm": Each([None, 1]),
+            "Short description": Each(["One", "Two"]),
+            "Which stats": ["stars"], "Max languages": "5"})
+        config, _asked = self.run(monkeypatch, tmp_path, answers)
+        assert config["projects"] == [{"repo": "ada/engine", "description": "One"},
+                                      {"repo": "ada/notes", "arm": 1, "description": "Two"}]
+        validate_config(config)
