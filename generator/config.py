@@ -1,6 +1,15 @@
 """Config validation and defaults for the Galaxy Profile generator."""
 
+from generator.themes import PALETTES
 from generator.utils import resolve_theme, HEX_COLOR_RE
+
+# theme keys that choose a palette instead of overriding a colour
+PALETTE_KEYS = ("dark", "light")
+
+
+def _repo_key(name: str) -> str:
+    """How a repository is compared across arms: by name, without owner, ignoring case."""
+    return str(name).split("/")[-1].lower()
 
 
 class ConfigError(ValueError):
@@ -43,10 +52,23 @@ def validate_config(config: dict) -> dict:
             raise ConfigError(f"galaxy_arms[{i}] must be a mapping.")
         if not arm.get("name"):
             raise ConfigError(f"galaxy_arms[{i}].name is required.")
-        if not arm.get("color"):
-            raise ConfigError(f"galaxy_arms[{i}].color is required.")
         if not isinstance(arm.get("items", []), list):
             raise ConfigError(f"galaxy_arms[{i}].items must be a list.")
+        repos = arm.get("repos", [])
+        if not isinstance(repos, list) or not all(isinstance(r, str) for r in repos):
+            raise ConfigError(f"galaxy_arms[{i}].repos must be a list of repository names.")
+
+    # a repository can be pinned to one arm only
+    pinned = {}
+    for i, arm in enumerate(galaxy_arms):
+        for repo in arm.get("repos", []):
+            key = _repo_key(repo)
+            if key in pinned and pinned[key] != i:
+                raise ConfigError(
+                    f"repository '{key}' is listed in galaxy_arms[{pinned[key]}] and galaxy_arms[{i}]; "
+                    "pick one arm."
+                )
+            pinned[key] = i
 
     # projects — optional, validate entries if present
     projects = config.get("projects", [])
@@ -67,14 +89,36 @@ def validate_config(config: dict) -> dict:
     user_theme = config.get("theme", {})
     if not isinstance(user_theme, dict):
         raise ConfigError("'theme' must be a mapping.")
+    palettes = {}
+    overrides = {}
     for key, value in user_theme.items():
-        if not isinstance(value, str) or not HEX_COLOR_RE.match(value):
+        if key in PALETTE_KEYS:
+            if value not in PALETTES:
+                raise ConfigError(
+                    f"theme.{key} must be one of {', '.join(PALETTES)}, got '{value}'."
+                )
+            palettes[key] = value
+        elif not isinstance(value, str) or not HEX_COLOR_RE.match(value):
             raise ConfigError(
                 f"theme.{key} must be a valid hex color (e.g. #00d4ff), got '{value}'."
             )
+        else:
+            overrides[key] = value
 
-    # Apply theme defaults
-    config["theme"] = resolve_theme(user_theme)
+    config["themes"] = {
+        "dark": palettes.get("dark", PALETTES[0]),
+        "light": palettes.get("light", PALETTES[0]),
+        "overrides": overrides,
+    }
+
+    # motion — optional flag
+    motion = config.get("motion", True)
+    if not isinstance(motion, bool):
+        raise ConfigError(f"'motion' must be true or false, got '{motion}'.")
+    config["motion"] = motion
+
+    # Apply theme defaults (the nine colours the pre-Atlas templates read)
+    config["theme"] = resolve_theme(overrides)
 
     # Apply other defaults
     config["profile"].setdefault("tagline", "")
