@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+import requests
 
 from generator import data
 from generator.data import DataError, Snapshot, build_query, fetch, from_graphql, from_rest, load_demo
@@ -136,7 +137,7 @@ class FakeResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+            raise requests.exceptions.HTTPError(f"HTTP {self.status_code}")
 
 
 class FakeHTTP:
@@ -200,3 +201,82 @@ def test_demo_snapshot_contains_the_example_configs_featured_projects():
 def test_demo_file_is_a_graphql_payload_so_it_exercises_the_real_path():
     payload = json.loads(data.DEMO_FILE.read_text(encoding="utf-8"))
     assert "user" in payload["data"] and "today" in payload
+
+
+# ── review fixes: a bad GraphQL answer must fall back, never crash ───────────
+
+
+
+def test_fetch_falls_back_when_graphql_returns_null_data():
+    http = FakeHTTP({"data": None, "errors": [{"message": "timeout"}]})
+    assert fetch("ada", "tok", [], TODAY, http=http).weeks is None
+
+
+def test_fetch_falls_back_when_the_graphql_payload_cannot_be_read():
+    broken = json.loads(json.dumps(SAMPLE))
+    broken["data"]["user"]["contributionsCollection"] = None
+    assert fetch("ada", "tok", [], TODAY, http=FakeHTTP(broken)).weeks is None
+
+
+def test_null_repository_nodes_and_null_languages_are_tolerated():
+    payload = json.loads(json.dumps(SAMPLE))
+    payload["data"]["user"]["repositories"]["nodes"].append(None)
+    payload["data"]["user"]["repositories"]["nodes"][0]["languages"] = None
+    payload["data"]["user"]["repositories"]["nodes"][0]["repositoryTopics"] = None
+    engine = next(r for r in from_graphql(payload, TODAY).repos if r.name == "engine")
+    assert engine.languages == {} and engine.topics == ()
+
+
+def test_rest_path_also_fetches_featured_repositories_of_other_owners():
+    class WithOrg(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            if url.endswith("/repos/babbage/difference"):
+                self.calls.append((method, url))
+                return FakeResponse({"name": "difference", "owner": {"login": "babbage"}, "fork": False,
+                                     "stargazers_count": 900, "created_at": "2022-02-02T00:00:00Z",
+                                     "pushed_at": "2026-08-01T00:00:00Z", "description": "Difference engine",
+                                     "language": "C", "topics": []})
+            return super().request(method, url, **kwargs)
+
+    snap_ = fetch("ada", "", ["babbage/difference", "ada/engine"], TODAY, http=WithOrg(SAMPLE))
+    difference = next(r for r in snap_.repos if r.name == "difference")
+    assert (difference.owner, difference.stars) == ("babbage", 900)
+    assert [r.name for r in snap_.repos].count("engine") == 1
+
+
+class RateLimited(FakeHTTP):
+    """Everything works except the per-repository languages endpoint, which is rate limited."""
+
+    def request(self, method, url, **kwargs):
+        if "/languages" in url:
+            self.calls.append((method, url))
+            response = FakeResponse({"message": "API rate limit exceeded"}, status=403)
+            response.text = "API rate limit exceeded"
+            response.headers = {"X-RateLimit-Reset": "9999999999"}
+            return response
+        return super().request(method, url, **kwargs)
+
+
+def test_a_rate_limit_never_makes_the_run_sleep(monkeypatch):
+    naps = []
+    monkeypatch.setattr("time.sleep", naps.append)
+    http = RateLimited(SAMPLE)
+    many = [dict(REST_REPOS[0], name=f"r{i}") for i in range(40)]
+    monkeypatch.setattr(http, "request", (lambda original: lambda method, url, **kw:
+                        FakeResponse(many if kw["params"]["page"] == 1 else [])
+                        if "/users/ada/repos" in url else original(method, url, **kw))(http.request))
+    snap_ = fetch("ada", "", [], TODAY, http=http)
+    assert naps == []
+    assert len([c for c in http.calls if "/languages" in c[1]]) == 1      # gave up after the first refusal
+    assert len(snap_.repos) == 40 and all(r.languages == {} for r in snap_.repos)
+
+
+def test_a_rate_limit_on_the_profile_itself_is_a_clear_error():
+    class Blocked(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            response = FakeResponse({"message": "API rate limit exceeded"}, status=403)
+            response.text = "API rate limit exceeded"
+            return response
+
+    with pytest.raises(DataError, match="rate limit"):
+        fetch("ada", "", [], TODAY, http=Blocked(SAMPLE))

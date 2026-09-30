@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -75,8 +74,8 @@ def _repo_from_graphql(node: dict) -> Repo:
         pushed=_day(node["pushedAt"] or node["createdAt"]),
         description=node.get("description") or "",
         primary_language=(node.get("primaryLanguage") or {}).get("name"),
-        languages={edge["node"]["name"]: edge["size"] for edge in node["languages"]["edges"]},
-        topics=tuple(t["topic"]["name"] for t in node["repositoryTopics"]["nodes"]),
+        languages={edge["node"]["name"]: edge["size"] for edge in (node.get("languages") or {}).get("edges") or []},
+        topics=tuple(t["topic"]["name"] for t in (node.get("repositoryTopics") or {}).get("nodes") or []),
         is_fork=node["isFork"],
     )
 
@@ -114,7 +113,7 @@ def from_graphql(payload: dict, today: date, login: Optional[str] = None) -> Sna
     user = body.get("user")
     if not user:
         raise DataError(f"GitHub has no user '{login or '?'}' (or the token cannot see it).")
-    owned = [_repo_from_graphql(node) for node in user["repositories"]["nodes"]]
+    owned = [_repo_from_graphql(node) for node in user["repositories"]["nodes"] if node]
     seen = {(r.owner, r.name) for r in owned}
     extras = []
     for key in sorted(k for k in body if k != "user"):
@@ -145,104 +144,142 @@ def from_graphql(payload: dict, today: date, login: Optional[str] = None) -> Sna
     )
 
 
-def from_rest(login: str, user: dict, repos: list, languages: dict, prs: int, issues: int,
-              today: date) -> Snapshot:
-    """Turn REST responses into a snapshot. languages maps repo name -> {language: bytes}."""
-    built = tuple(
-        Repo(
-            name=r["name"],
-            owner=r["owner"]["login"],
-            stars=r.get("stargazers_count", 0),
-            created=_day(r["created_at"]),
-            pushed=_day(r.get("pushed_at") or r["created_at"]),
-            description=r.get("description") or "",
-            primary_language=r.get("language"),
-            languages=dict(languages.get(r["name"], {})),
-            topics=tuple(r.get("topics") or ()),
-            is_fork=bool(r.get("fork")),
-        )
-        for r in repos
+def _repo_from_rest(r: dict, languages: dict) -> Repo:
+    return Repo(
+        name=r["name"],
+        owner=r["owner"]["login"],
+        stars=r.get("stargazers_count", 0),
+        created=_day(r["created_at"]),
+        pushed=_day(r.get("pushed_at") or r["created_at"]),
+        description=r.get("description") or "",
+        primary_language=r.get("language"),
+        languages=dict(languages.get(r["name"], {})),
+        topics=tuple(r.get("topics") or ()),
+        is_fork=bool(r.get("fork")),
     )
+
+
+def from_rest(login: str, user: dict, repos: list, languages: dict, prs: int, issues: int,
+              today: date, extras: list = ()) -> Snapshot:
+    """Turn REST responses into a snapshot.
+
+    languages maps repo name -> {language: bytes}. extras are featured
+    repositories of other owners; they do not count towards the user's stars.
+    """
+    owned = [_repo_from_rest(r, languages) for r in repos]
     return Snapshot(
         login=login,
-        repos=built,
+        repos=tuple(owned + [_repo_from_rest(r, languages) for r in extras]),
         weeks=None,
         total_contributions=None,
         counters={
-            "stars": sum(r.stars for r in built),
+            "stars": sum(r.stars for r in owned),
             "prs": prs,
             "issues": issues,
-            "repos": user.get("public_repos", len(built)),
+            "repos": user.get("public_repos", len(owned)),
         },
         today=today,
     )
 
 
 def _request(http, method: str, url: str, token: str, **kwargs):
-    """One HTTP call; waits out a rate limit once."""
     headers = {"Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     kwargs.setdefault("timeout", 20)
-    response = http.request(method, url, headers=headers, **kwargs)
-    if response.status_code == 403 and "rate limit" in response.text.lower():
-        reset = int(response.headers.get("X-RateLimit-Reset", 0))
-        wait = max(reset - int(time.time()), 1)
-        logger.warning("GitHub rate limit reached; waiting %ds.", wait)
-        time.sleep(min(wait, 120))
-        response = http.request(method, url, headers=headers, **kwargs)
-    return response
+    return http.request(method, url, headers=headers, **kwargs)
 
 
-def _fetch_rest(http, login: str, token: str, today: date) -> Snapshot:
-    user = _request(http, "GET", f"{REST_URL}/users/{login}", token)
-    if user.status_code == 404:
-        raise DataError(f"GitHub has no user '{login}'.")
-    user.raise_for_status()
+def _rate_limited(response) -> bool:
+    return response.status_code in (403, 429) and "rate limit" in (response.text or "").lower()
+
+
+def _fetch_rest(http, login: str, token: str, extra_repos: list, today: date) -> Snapshot:
+    """The REST path. It never waits for a rate limit to reset.
+
+    Without a token GitHub allows 60 requests an hour. The profile and the
+    repository list are required: if those are refused, the run fails with a
+    clear message. Everything else (languages, counters, featured repositories
+    of other owners) is optional: at the first refusal the rest is skipped and
+    the snapshot is built with what is already known.
+    """
+    def required(url: str, **kwargs):
+        response = _request(http, "GET", url, token, **kwargs)
+        if _rate_limited(response):
+            raise DataError("GitHub rate limit reached before the profile could be read. "
+                            "Set GITHUB_TOKEN to raise the limit.")
+        if response.status_code == 404:
+            raise DataError(f"GitHub has no user '{login}'.")
+        response.raise_for_status()
+        return response.json()
+
+    budget = {"open": True}
+
+    def optional(url: str, **kwargs):
+        """JSON of an optional call, or None once GitHub has started refusing."""
+        if not budget["open"]:
+            return None
+        response = _request(http, "GET", url, token, **kwargs)
+        if _rate_limited(response):
+            budget["open"] = False
+            logger.warning("GitHub rate limit reached; continuing with what was already fetched. "
+                           "Set GITHUB_TOKEN for complete data.")
+            return None
+        if response.status_code != 200:
+            logger.warning("GET %s returned HTTP %d.", url, response.status_code)
+            return None
+        return response.json()
+
+    user = required(f"{REST_URL}/users/{login}")
     repos, page = [], 1
     while True:
-        batch = _request(http, "GET", f"{REST_URL}/users/{login}/repos", token,
+        items = required(f"{REST_URL}/users/{login}/repos",
                          params={"per_page": 100, "page": page, "type": "owner"})
-        batch.raise_for_status()
-        items = batch.json()
         repos += items
         if len(items) < 100:
             break
         page += 1
-    languages = {}
-    for repo in repos:
-        if repo.get("fork"):
+
+    owned = {r["name"].lower() for r in repos}
+    extras = []
+    for full_name in extra_repos:
+        owner, _, name = full_name.rpartition("/")
+        owner = owner or login
+        if owner.lower() == login.lower() and name.lower() in owned:
             continue
-        response = _request(http, "GET", f"{REST_URL}/repos/{login}/{repo['name']}/languages", token)
-        if response.status_code == 200:
-            languages[repo["name"]] = response.json()
-        else:
-            logger.warning("Could not read languages of %s (HTTP %d).", repo["name"], response.status_code)
+        found = optional(f"{REST_URL}/repos/{owner}/{name}")
+        if found:
+            extras.append(found)
+
+    languages = {}
+    for repo in [r for r in repos if not r.get("fork")] + extras:
+        found = optional(f"{REST_URL}/repos/{repo['owner']['login']}/{repo['name']}/languages")
+        if found:
+            languages[repo["name"]] = found
 
     def count(kind: str) -> int:
-        response = _request(http, "GET", f"{REST_URL}/search/issues", token,
-                            params={"q": f"author:{login} type:{kind}", "per_page": 1})
-        return response.json().get("total_count", 0) if response.status_code == 200 else 0
+        found = optional(f"{REST_URL}/search/issues",
+                         params={"q": f"author:{login} type:{kind}", "per_page": 1})
+        return (found or {}).get("total_count", 0)
 
-    return from_rest(login, user.json(), repos, languages, count("pr"), count("issue"), today)
+    return from_rest(login, user, repos, languages, count("pr"), count("issue"), today, extras)
 
 
 def fetch(login: str, token: str, extra_repos: list, today: date, http=requests) -> Snapshot:
-    """Read a profile from GitHub: GraphQL with a token, REST without (or if GraphQL fails)."""
+    """Read a profile from GitHub: GraphQL with a token, REST without one or when GraphQL fails."""
     if token:
         query, variables = build_query(login, extra_repos)
         try:
             response = _request(http, "POST", GRAPHQL_URL, token, json={"query": query, "variables": variables})
             response.raise_for_status()
-            payload = response.json()
-        except (requests.exceptions.RequestException, RuntimeError, ValueError) as error:
-            logger.warning("GraphQL request failed (%s); falling back to REST.", error)
-        else:
-            # a featured repository that does not exist comes back as an error next to valid data
-            if payload.get("data", {}).get("user"):
-                return from_graphql(payload, today, login)
-            logger.warning("GraphQL returned no user (%s); falling back to REST.", payload.get("errors"))
-    return _fetch_rest(http, login, token, today)
+            # a featured repository that does not exist comes back as an error next to valid data,
+            # so errors alone do not disqualify the answer: a readable user does
+            return from_graphql(response.json(), today, login)
+        except (requests.exceptions.RequestException, DataError, KeyError, TypeError, AttributeError,
+                ValueError) as error:
+            logger.warning("GraphQL answer could not be used (%s: %s); falling back to REST.",
+                           type(error).__name__, error)
+    return _fetch_rest(http, login, token, extra_repos, today)
 
 
 def load_demo() -> Snapshot:
