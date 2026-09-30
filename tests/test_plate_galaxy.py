@@ -146,3 +146,100 @@ def test_large_particles_stay_on_the_axis_of_the_arm():
                 strays += 1
                 assert width in small, f"a {width}px particle sits {off_axis:.0%} off the arm"
     assert strays > 100          # the test must actually have seen off-axis particles
+
+
+# ── repository stars ─────────────────────────────────────────────────────────
+
+from datetime import date, timedelta
+
+import yaml
+
+from generator.config import validate_config
+from generator.data import Repo, load_demo
+from generator.model import Arm, GalaxyModel
+from generator.model import galaxy as galaxy_model
+from generator.plates.galaxy import arm_cuts, place_stars
+
+
+def demo_model():
+    with open("config.example.yml", encoding="utf-8") as handle:
+        return galaxy_model(load_demo(), validate_config(yaml.safe_load(handle)))
+
+
+def repo(name, created, stars=0):
+    return Repo(name=name, owner="ada", stars=stars, created=created, pushed=created, description="",
+                primary_language="Python", languages={"Python": 1}, topics=(), is_fork=False)
+
+
+def distance(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def test_the_arm_with_most_repositories_reaches_the_rim_and_the_others_are_shorter():
+    model, geo = demo_model(), Geometry(False, 3)
+    assert arm_cuts(model, geo) == pytest.approx([196, 196 * (0.5 + 0.5 * 4 / 5), 196 * (0.5 + 0.5 * 1 / 5)])
+
+
+def test_unnamed_arms_of_an_unmatched_galaxy_have_a_fixed_length():
+    model = GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
+    assert arm_cuts(model, Geometry(False, 2)) == pytest.approx([196 * 0.8, 196 * 0.8])
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_every_star_is_inside_the_frame(mobile):
+    model = demo_model()
+    geo = Geometry(mobile, len(model.arms))
+    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    assert set(positions) == set(model.order)
+    assert all(0 <= x <= geo.width and 0 <= y <= geo.height for x, y in positions.values())
+
+
+def test_stars_on_an_arm_sit_on_its_curve_further_out_the_newer_they_are():
+    model = demo_model()
+    geo = Geometry(False, len(model.arms))
+    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    for index, arm in enumerate(model.arms):
+        radii = [distance(positions[r.name], (geo.cx, geo.cy)) for r in arm.repos]
+        assert radii == sorted(radii)
+        for r, radius in zip(arm.repos, radii):
+            assert distance(positions[r.name], geo.point(index, radius)) < 0.01
+
+
+def test_stars_on_an_arm_stay_between_the_core_and_the_arms_cut():
+    model = demo_model()
+    geo = Geometry(False, len(model.arms))
+    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    for arm, cut in zip(model.arms, arm_cuts(model, geo)):
+        for r in arm.repos:
+            assert geo.radius * 0.26 <= distance(positions[r.name], (geo.cx, geo.cy)) <= cut * 0.95 + 0.01
+
+
+def test_loose_stars_keep_their_distance_from_every_other_star():
+    model = demo_model()
+    geo = Geometry(False, len(model.arms))
+    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    for loose in model.loose:
+        others = [p for name, p in positions.items() if name != loose.name]
+        assert min(distance(positions[loose.name], p) for p in others) >= 14
+
+
+def test_forty_repositories_on_one_arm_are_all_drawn_inside_its_cut():
+    day = date(2020, 1, 1)
+    arm = Arm("Backend", tuple(repo(f"r{i:02d}", day + timedelta(days=30 * i)) for i in range(40)))
+    model = GalaxyModel(arms=(arm,), loose=(), labels=frozenset(), order=tuple(r.name for r in arm.repos))
+    geo = Geometry(False, 1)
+    positions = place_stars(model, geo, random.Random("x"))
+    assert len(positions) == 40
+    assert max(distance(p, (geo.cx, geo.cy)) for p in positions.values()) <= 196 * 0.95 + 0.01
+    assert all(0 <= x <= geo.width and 0 <= y <= geo.height for x, y in positions.values())
+
+
+def test_empty_galaxy_has_no_stars():
+    model = GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
+    assert place_stars(model, Geometry(False, 2), random.Random("x")) == {}
+
+
+def test_same_seed_same_sky():
+    model = demo_model()
+    geo = Geometry(False, len(model.arms))
+    assert place_stars(model, geo, random.Random("s")) == place_stars(model, geo, random.Random("s"))

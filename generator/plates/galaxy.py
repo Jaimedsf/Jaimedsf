@@ -165,3 +165,43 @@ def dust(geo: Geometry, cuts: list, theme, rng, motion) -> tuple:
         bulge.setdefault(key, []).append((r * math.cos(a), r * math.sin(a)))
     body.append(f'<g{motion.cls("swirl")}>{_field(bulge, theme.glow, ids)}</g>')
     return "".join(defs), "".join(body)
+
+
+# ── repository stars ─────────────────────────────────────────────────────────
+
+INNER_EDGE = 0.26                 # stars start this far out (fraction of the radius), clear of the bulge
+OUTER_EDGE = 0.95                 # and end this close to their arm's cut
+LOOSE_BAND = (0.3, 0.8)           # where repositories without an arm float
+MIN_GAP = 14                      # pixels between a loose star and any other
+UNNAMED_CUT = 0.8
+
+
+def arm_cuts(model, geo: Geometry) -> list:
+    """The radius where each arm ends: longer for the focus areas with more repositories."""
+    most = max((len(arm.repos) for arm in model.arms), default=0)
+    if not most:
+        return [geo.radius * UNNAMED_CUT for _ in model.arms]
+    return [geo.radius * (0.5 + 0.5 * len(arm.repos) / most) for arm in model.arms]
+
+
+def place_stars(model, geo: Geometry, rng) -> dict:
+    """{repository name: (x, y)} in the frame's coordinates.
+
+    On an arm, repositories run from the oldest near the core to the newest
+    near the arm's end, evenly spaced in radius. Those without an arm float
+    between the arms, each tried a dozen times for a spot clear of the others.
+    """
+    positions = {}
+    for index, (arm, cut) in enumerate(zip(model.arms, arm_cuts(model, geo))):
+        inner, outer = geo.radius * INNER_EDGE, cut * OUTER_EDGE
+        for q, repo in enumerate(arm.repos):
+            positions[repo.name] = geo.point(index, inner + (outer - inner) * (q + 0.5) / len(arm.repos))
+    for repo in model.loose:
+        spot = None
+        for _ in range(12):
+            a, r = rng.uniform(0, 2 * math.pi), geo.radius * rng.uniform(*LOOSE_BAND)
+            spot = (geo.cx + r * math.cos(a), geo.cy + r * math.sin(a))
+            if all(math.hypot(spot[0] - x, spot[1] - y) >= MIN_GAP for x, y in positions.values()):
+                break
+        positions[repo.name] = spot
+    return positions
