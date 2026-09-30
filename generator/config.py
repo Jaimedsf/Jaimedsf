@@ -26,6 +26,9 @@ LEGACY_THEME = {
 # theme colours that painted card backgrounds and borders; the Atlas plates have neither
 RETIRED_COLOURS = ("nebula", "star_dust")
 
+DEFAULT_METRICS = ("commits", "stars", "prs", "issues", "repos")
+MAX_LANGUAGES = 20               # segments the language band can show and still be read
+
 # theme keys that choose a palette instead of overriding a colour
 PALETTE_KEYS = ("dark", "light")
 
@@ -160,11 +163,42 @@ def validate_config(config: dict) -> dict:
     config["profile"].setdefault("philosophy", "")
     config.setdefault("social", {})
     config.setdefault("projects", [])
-    config.setdefault("stats", {}).setdefault(
-        "metrics", ["commits", "stars", "prs", "issues", "repos"]
-    )
-    lang_cfg = config.setdefault("languages", {})
-    lang_cfg.setdefault("exclude", [])
-    lang_cfg.setdefault("max_display", 8)
+
+    # stats and languages — optional sections; one left empty in the YAML arrives as None
+    stats = _section(config, "stats")
+    metrics = stats.get("metrics")
+    if metrics is None:
+        metrics = list(DEFAULT_METRICS)
+    if not isinstance(metrics, list) or not all(isinstance(m, str) for m in metrics):
+        raise ConfigError("'stats.metrics' must be a list of names, such as [stars, prs, issues].")
+    stats["metrics"] = metrics
+
+    languages = _section(config, "languages")
+    exclude = languages.get("exclude")
+    if exclude is None:
+        exclude = []
+    if not isinstance(exclude, list) or not all(isinstance(name, str) for name in exclude):
+        raise ConfigError("'languages.exclude' must be a list of language names, such as [HTML, CSS].")
+    languages["exclude"] = exclude
+    shown = languages.get("max_display")
+    if shown is None:
+        shown = 8
+    if isinstance(shown, bool) or not isinstance(shown, int) or shown < 1:
+        raise ConfigError(f"'languages.max_display' must be a whole number of at least 1, got {shown!r}.")
+    if shown > MAX_LANGUAGES:
+        logger.warning("languages.max_display is %d; the band shows at most %d languages.", shown, MAX_LANGUAGES)
+        shown = MAX_LANGUAGES
+    languages["max_display"] = shown
 
     return config
+
+
+def _section(config: dict, name: str) -> dict:
+    """An optional section of the config as a mapping; a missing or empty one is an empty mapping."""
+    section = config.get(name)
+    if section is None:
+        section = {}
+    if not isinstance(section, dict):
+        raise ConfigError(f"'{name}' must be a mapping.")
+    config[name] = section
+    return section

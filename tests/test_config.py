@@ -166,3 +166,55 @@ class TestLegacyColours:
         with caplog.at_level("WARNING"):
             validate_config(cfg)
         assert "theme.nebula" in caplog.text and "no longer" in caplog.text
+
+
+class TestStatsAndLanguages:
+    """Sections a user may leave empty, or mistype: a clear message, never a traceback from deep inside."""
+
+    @pytest.mark.parametrize("section", ["stats", "languages"])
+    def test_a_section_left_empty_gets_its_defaults(self, cfg, section):
+        cfg[section] = None
+        result = validate_config(cfg)
+        assert result["stats"]["metrics"] == ["commits", "stars", "prs", "issues", "repos"]
+        assert result["languages"] == {"exclude": [], "max_display": 8} or section == "stats"
+
+    @pytest.mark.parametrize("section", ["stats", "languages"])
+    def test_a_section_that_is_not_a_mapping_is_rejected(self, cfg, section):
+        cfg[section] = ["stars"]
+        with pytest.raises(ConfigError, match=f"'{section}' must be a mapping"):
+            validate_config(cfg)
+
+    @pytest.mark.parametrize("metrics", ["stars", 5, [["stars"]], [1, 2]])
+    def test_metrics_must_be_a_list_of_names(self, cfg, metrics):
+        cfg["stats"] = {"metrics": metrics}
+        with pytest.raises(ConfigError, match="stats.metrics"):
+            validate_config(cfg)
+
+    def test_metrics_left_empty_get_the_default(self, cfg):
+        cfg["stats"] = {"metrics": None}
+        assert validate_config(cfg)["stats"]["metrics"] == ["commits", "stars", "prs", "issues", "repos"]
+
+    @pytest.mark.parametrize("exclude", ["TypeScript", 7, [1, 2]])
+    def test_exclude_must_be_a_list_of_language_names(self, cfg, exclude):
+        cfg["languages"] = {"exclude": exclude}
+        with pytest.raises(ConfigError, match="languages.exclude"):
+            validate_config(cfg)
+
+    def test_exclude_left_empty_excludes_nothing(self, cfg):
+        cfg["languages"] = {"exclude": None, "max_display": 5}
+        assert validate_config(cfg)["languages"] == {"exclude": [], "max_display": 5}
+
+    @pytest.mark.parametrize("value", ["8", 3.5, 0, -1, True, None])
+    def test_max_display_must_be_a_whole_number_of_at_least_one(self, cfg, value):
+        cfg["languages"] = {"max_display": value}
+        if value is None:
+            assert validate_config(cfg)["languages"]["max_display"] == 8
+        else:
+            with pytest.raises(ConfigError, match="languages.max_display"):
+                validate_config(cfg)
+
+    def test_a_max_display_beyond_what_the_band_can_show_is_lowered_not_rejected(self, cfg, caplog):
+        cfg["languages"] = {"max_display": 50}
+        with caplog.at_level("WARNING"):
+            assert validate_config(cfg)["languages"]["max_display"] == 20
+        assert "max_display" in caplog.text

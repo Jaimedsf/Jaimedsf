@@ -130,12 +130,12 @@ def language_shares(snap: Snapshot, exclude: list, max_display: int) -> list:
 
     A language too small to round to a tenth of a percent is left out.
     """
-    login, skip, totals = snap.login.lower(), set(exclude), {}
+    login, skip, totals = snap.login.lower(), {str(name).lower() for name in exclude}, {}
     for repo in snap.repos:
         if repo.is_fork or repo.owner.lower() != login:
             continue
         for lang, size in repo.languages.items():
-            if lang not in skip:
+            if lang.lower() not in skip:
                 totals[lang] = totals.get(lang, 0) + size
     whole = sum(totals.values())
     if not whole:

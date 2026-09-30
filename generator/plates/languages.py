@@ -9,9 +9,11 @@ its own glyph outlines, and they are most of the file.
 
 from __future__ import annotations
 
+import logging
+
 from generator.motion import Motion
-from generator.svg import esc, frame, num
-from generator.typeset import Typesetter, measure, wrap
+from generator.svg import clean, frame, num
+from generator.typeset import ELLIPSIS, Typesetter, measure, wrap
 
 HEADING = "Languages across public repositories, by bytes of code"
 EMPTY = "No language data yet"
@@ -19,7 +21,10 @@ GAP = 2                           # pixels between segments
 BAND_Y, BAND_H, LIGHT_H = 56, 24, 16
 SWEEP, SWEEP_STARTS = 1.5, 0.25   # seconds the entrance sweep takes, and when it starts
 COLUMNS = 3                       # focus areas per row on desktop
-LIST_LINES = 2                    # lines a focus area's items may take
+LIST_LINES = 2                    # lines a focus area's items may take; one, when there are more than three areas
+BYTE_BUDGET = 48_000              # the file's ceiling (spec, section 5)
+
+logger = logging.getLogger(__name__)
 
 
 def sweep_time(x: float) -> float:
@@ -47,25 +52,29 @@ def _band(shares: list, theme, x0: float, x1: float) -> list:
     return out
 
 
-def _list_lines(items: list, size: float, limit: float) -> list:
-    """A focus area's items as running text in up to LIST_LINES lines, broken between items, never inside one."""
+def _list_lines(items: list, size: float, limit: float, most: int = LIST_LINES) -> list:
+    """A focus area's items as running text in up to `most` lines, broken between items, never inside one."""
     lines, current = [], ""
-    for item in items:
-        candidate = f"{current}, {item}" if current else str(item)
+    for item in (clean(item).strip() for item in items if item is not None):
+        if not item:
+            continue
+        candidate = f"{current}, {item}" if current else item
         if not current or measure(candidate + ",", size) <= limit:
             current = candidate
         else:
             lines.append(current + ",")
-            current = str(item)
+            current = item
     if current:
         lines.append(current)
-    if len(lines) > LIST_LINES:
+    if len(lines) > most:
         # what does not fit is cut where the last line ends, with an ellipsis
-        lines[LIST_LINES - 1:] = wrap(" ".join(lines[LIST_LINES - 1:]), size, "regular", limit, max_lines=1)
-    return [wrap(line, size, "regular", limit, max_lines=1)[0] for line in lines]
+        lines[most - 1:] = wrap(" ".join(lines[most - 1:]), size, "regular", limit, max_lines=1)
+    fitted = [cut[0] for cut in (wrap(line, size, "regular", limit, max_lines=1) for line in lines) if cut]
+    return [line[:-2] + ELLIPSIS if line.endswith("," + ELLIPSIS) else line for line in fitted]
 
 
-def _stack(arms: list, theme, mobile: bool, x0: float, x1: float, top: float, ts: Typesetter) -> tuple:
+def _stack(arms: list, theme, mobile: bool, x0: float, x1: float, top: float, ts: Typesetter,
+           list_lines: int = LIST_LINES) -> tuple:
     """(body, baseline of the last line) of the declared stack, its first area name set at `top`."""
     name_size, item_size = (14.5, 13.5) if mobile else (16, 14)
     to_items, line_step, to_next = (18, 17, 22) if mobile else (22, 19, 36)
@@ -80,7 +89,7 @@ def _stack(arms: list, theme, mobile: bool, x0: float, x1: float, top: float, ts
             name = wrap(str(arm.get("name") or ""), name_size, "italic", limit, max_lines=1)
             if name:
                 body.append(ts.line(x, y, name[0], name_size, theme.ink, "italic"))
-            for j, line in enumerate(_list_lines(arm.get("items") or [], item_size, limit)):
+            for j, line in enumerate(_list_lines(arm.get("items") or [], item_size, limit, list_lines)):
                 body.append(ts.line(x, y + to_items + j * line_step, line, item_size, theme.mute))
                 bottom = max(bottom, y + to_items + j * line_step)
         last, y = bottom, bottom + to_next
@@ -95,7 +104,25 @@ def _summary(shares: list, arms: list) -> str:
 
 
 def render(shares: list, arms: list, theme, mobile: bool = False, motion: bool = True) -> str:
-    """shares is what model.language_shares returns; arms is the config's galaxy_arms."""
+    """shares is what model.language_shares returns; arms is the config's galaxy_arms.
+
+    Every character of the declared stack is a glyph in the file, so the lists
+    are what decides its size. Up to three focus areas get two lines each and
+    more get one; if the file is still over BYTE_BUDGET, every list is cut to
+    one line. Nothing else is given up: a file that is still over is drawn
+    anyway, with a warning.
+    """
+    svg = ""
+    for list_lines in ((LIST_LINES if len(arms) <= COLUMNS else 1), 1):
+        svg = _compose(shares, arms, theme, mobile, motion, list_lines)
+        if len(svg.encode("utf-8")) <= BYTE_BUDGET:
+            return svg
+    logger.warning("tech-stack%s is %d bytes, over the %d budget: the focus areas hold a lot of text.",
+                   "-mobile" if mobile else "", len(svg.encode("utf-8")), BYTE_BUDGET)
+    return svg
+
+
+def _compose(shares: list, arms: list, theme, mobile: bool, motion: bool, list_lines: int) -> str:
     mo, ts = Motion(motion), Typesetter()
     shares = [(name, percent) for name, percent in shares if percent > 0]      # nothing to draw for a zero share
     width = 390 if mobile else 850
@@ -164,7 +191,7 @@ def render(shares: list, arms: list, theme, mobile: bool = False, motion: bool =
 
     rule_y = BAND_Y + BAND_H + (84 if mobile else 62)
     body.append(f'<path d="M{x0} {rule_y}H{x1}" stroke="{theme.faint}"/>')
-    stack, last = _stack(arms, theme, mobile, x0, x1, rule_y + 30, ts)
+    stack, last = _stack(arms, theme, mobile, x0, x1, rule_y + 30, ts, list_lines)
     body.append(stack)
     height = round(last + (34 if mobile else 32))
     defs.append(ts.defs())

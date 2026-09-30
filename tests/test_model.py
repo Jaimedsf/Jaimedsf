@@ -342,3 +342,9 @@ def test_a_language_too_small_to_round_to_a_tenth_of_a_percent_is_not_listed():
 def test_languages_that_are_all_dust_next_to_one_giant_leave_just_the_giant():
     repo = make("mono", languages={"C": 10_000_000, "Awk": 10, "Sed": 9})
     assert language_shares(snapshot([repo]), [], 8) == [("C", 100.0)]
+
+
+def test_excluding_a_language_does_not_depend_on_how_its_name_is_cased():
+    repo = make("site", languages={"TypeScript": 60, "HTML": 40})
+    assert language_shares(snapshot([repo]), ["typescript"], 8) == [("HTML", 100.0)]
+    assert language_shares(snapshot([repo]), ["html", "TYPESCRIPT"], 8) == []

@@ -14,6 +14,7 @@ import re
 
 _ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "C": 6}
 _COMMAND = re.compile(r"([MLHVQCZ])([^MLHVQCZ]*)")
+_WHOLE = re.compile(r"(?:[MLHVQCZ][-0-9 ]*)*")
 
 
 def _numbers(values) -> str:
@@ -30,8 +31,11 @@ def relative(d: str) -> str:
 
     Takes absolute M, L, H, V, Q, C and Z with integer arguments. Lines along
     an axis become h or v, and a command repeated right after itself is not
-    spelled again.
+    spelled again. Anything else raises ValueError: a path it does not fully
+    understand would come out as a different shape.
     """
+    if not _WHOLE.fullmatch(d):
+        raise ValueError(f"path data outside absolute M L H V Q C Z with whole numbers: {d[:40]!r}")
     out, last = [], ""
     x = y = start_x = start_y = 0
 
@@ -51,6 +55,8 @@ def relative(d: str) -> str:
             continue
         values = [int(v) for v in re.findall(r"-?\d+", arguments)]
         size = _ARITY[command]
+        if not values or len(values) % size:
+            raise ValueError(f"{command} takes {size} numbers at a time, got {len(values)}: {d[:40]!r}")
         for k in range(0, len(values), size):
             group = values[k:k + size]
             step = "L" if command == "M" and k else command      # points after a move are lines

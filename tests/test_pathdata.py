@@ -93,3 +93,16 @@ def test_the_atlases_are_written_in_the_relative_form(style):
 def relative_is_stable(d):
     """An outline already in the relative form has nothing left to gain: M is its only capital."""
     return d == "" or (d[0] == "M" and set(re.findall(r"[A-Za-z]", d)) <= set("Mlhvqcz"))
+
+
+@pytest.mark.parametrize("d", [
+    "M0 0L1.5 2",            # not whole numbers
+    "M0 0T10 10",            # a command the font pen never writes
+    "M0 0C1 1 2 2 3 3 4 4",  # a cubic missing two of its numbers
+    "M0 0l5 5",              # already relative
+    "M0 0L",                 # a command with nothing after it
+    "10 10L5 5",             # numbers before any command
+])
+def test_path_data_outside_what_it_understands_is_refused_not_rewritten_into_another_shape(d):
+    with pytest.raises(ValueError):
+        relative(d)

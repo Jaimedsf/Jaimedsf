@@ -280,3 +280,22 @@ def test_a_rate_limit_on_the_profile_itself_is_a_clear_error():
 
     with pytest.raises(DataError, match="rate limit"):
         fetch("ada", "", [], TODAY, http=Blocked(SAMPLE))
+
+
+def test_counters_the_rate_limit_kept_from_being_read_are_unknown_not_zero():
+    """Once GitHub starts refusing, pull requests and issues were never counted: that is None, not 0."""
+    snap_ = fetch("ada", "", [], TODAY, http=RateLimited(SAMPLE))
+    assert snap_.counters["prs"] is None and snap_.counters["issues"] is None
+    assert snap_.counters["repos"] == 2 and snap_.counters["stars"] is not None
+
+
+def test_counters_that_were_read_are_kept_even_when_zero():
+    class NoPullRequests(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            if "/search/issues" in url:
+                self.calls.append((method, url))
+                return FakeResponse({"total_count": 0})
+            return super().request(method, url, **kwargs)
+
+    snap_ = fetch("ada", "", [], TODAY, http=NoPullRequests(SAMPLE))
+    assert snap_.counters["prs"] == 0 and snap_.counters["issues"] == 0

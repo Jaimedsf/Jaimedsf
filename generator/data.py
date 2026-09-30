@@ -262,10 +262,11 @@ def _fetch_rest(http, login: str, token: str, extra_repos: list, today: date) ->
         if found:
             languages[repo["name"]] = found
 
-    def count(kind: str) -> int:
+    def count(kind: str) -> Optional[int]:
+        """How many pull requests or issues the user has opened; None when GitHub would not say."""
         found = optional(f"{REST_URL}/search/issues",
                          params={"q": f"author:{login} type:{kind}", "per_page": 1})
-        return (found or {}).get("total_count", 0)
+        return None if found is None else found.get("total_count", 0)
 
     return from_rest(login, user, repos, languages, count("pr"), count("issue"), today, extras)
 

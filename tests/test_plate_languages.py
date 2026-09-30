@@ -337,3 +337,105 @@ def test_a_language_that_rounds_to_nothing_does_not_break_the_plate(shares, mobi
     rules.svg_is_sound(svg)
     rules.text_stays_inside(svg)
     assert all(width > 0 for _x, width, _colour in segments(svg))
+
+
+# ── what the digest alone used to guard ──────────────────────────────────────
+
+def test_the_band_is_filled_whatever_the_percentages_add_up_to():
+    for shares in ([("Python", 60.0), ("Go", 39.7)], [("Python", 60.1), ("Go", 40.1)], [("A", 33.3), ("B", 33.3), ("C", 33.3)]):
+        found = segments(plate(shares=shares))
+        assert len(found) == len(shares)
+        assert found[-1][0] + found[-1][1] == pytest.approx(806, abs=0.3)
+
+
+def test_the_bright_edge_reaches_the_end_of_each_segment_as_that_segment_finishes_opening():
+    svg = plate()
+    css = re.search(r"<style>(.*?)</style>", svg).group(1)
+    stops = {float(x): float(when) for when, x in re.findall(
+        r"([\d.]+)%\{transform:translateX\(([\d.]+)px\)", re.search(r"@keyframes edge\{(.*?\})\}", css).group(1))}
+    timing = re.findall(r'class="grow" style="animation-delay:([\d.]+)s;animation-duration:([\d.]+)s"', svg)
+    assert len(stops) == 9                                          # the start and the end of each of eight segments
+    for (x, w, _colour), (delay, duration) in zip(segments(svg), timing):
+        finishes = (float(delay) + float(duration) - 0.25) / 1.5 * 100
+        nearest = min(stops, key=lambda stop: abs(stop - (x + w)))
+        assert nearest == pytest.approx(x + w, abs=0.11) and stops[nearest] == pytest.approx(finishes, abs=0.7)
+
+
+def test_the_two_lines_of_a_list_are_a_line_apart():
+    for mobile, step in ((False, 19), (True, 17)):
+        runs = [run for run in text_runs(plate(arms=six_long_areas()[:1], mobile=mobile))
+                if run["style"] == "regular" and run["y"] > 150]
+        assert len(runs) == 2 and runs[1]["y"] - runs[0]["y"] == pytest.approx(step, abs=0.11)
+
+
+def test_blank_items_are_skipped_among_the_others():
+    assert "Go,Rust" in texts(plate(arms=[{"name": "Systems", "items": ["Go", " ", None, "", "Rust"]}]))
+
+
+def test_a_focus_area_whose_items_are_blank_shows_its_name_alone():
+    for items in ([" "], ["", "  "], [None]):
+        svg = plate(arms=[{"name": "Curiosity", "items": items}])
+        ET.fromstring(svg)
+        assert "Curiosity" in texts(svg)
+
+
+# ── the size of the file ─────────────────────────────────────────────────────
+
+ORDINARY = [
+    ("Frontend", ["TypeScript", "React", "Next.js", "Vue", "Svelte", "Tailwind CSS", "Vite", "Storybook", "Jest", "Cypress"]),
+    ("Backend", ["Python", "Django", "FastAPI", "Node.js", "Express", "Go", "gRPC", "GraphQL", "Redis", "RabbitMQ"]),
+    ("Data", ["PostgreSQL", "MySQL", "MongoDB", "ClickHouse", "Apache Kafka", "Airflow", "dbt", "Spark", "Pandas", "DuckDB"]),
+    ("Machine Learning", ["PyTorch", "TensorFlow", "scikit-learn", "Hugging Face", "LangChain", "ONNX", "MLflow", "Jupyter",
+                          "NumPy", "XGBoost"]),
+    ("Infrastructure", ["Docker", "Kubernetes", "Terraform", "Ansible", "AWS", "Google Cloud", "Azure", "Nginx", "Linux",
+                        "Prometheus"]),
+    ("Mobile & Desktop", ["Swift", "Kotlin", "Flutter", "React Native", "Electron", "Tauri", "Qt", "SwiftUI", "Jetpack",
+                          "Xcode"]),
+]
+
+
+def ordinary_areas(count=6):
+    return [{"name": name, "items": items} for name, items in ORDINARY[:count]]
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_six_ordinary_focus_areas_of_ten_items_each_stay_under_the_budget(mobile):
+    many = [(f"Language{i}", 5.0) for i in range(20)]
+    for shares in (SHARES, many):
+        svg = plate(shares=shares, arms=ordinary_areas(), mobile=mobile)
+        rules.within_budget(svg, 48_000, 80)
+        rules.text_stays_inside(svg)
+
+
+def item_lines(svg, top=150):
+    return [run for run in text_runs(svg) if run["style"] == "regular" and run["y"] > top]
+
+
+def test_up_to_three_focus_areas_get_two_lines_each_and_more_than_three_get_one():
+    for mobile in (False, True):
+        top = 180 if mobile else 150
+        assert len(item_lines(plate(arms=ordinary_areas(3), mobile=mobile), top)) == 6
+        assert len(item_lines(plate(arms=ordinary_areas(4), mobile=mobile), top)) == 4
+        assert len(item_lines(plate(arms=ordinary_areas(6), mobile=mobile), top)) == 6
+
+
+def test_a_cut_list_ends_in_an_ellipsis_with_no_comma_left_hanging_before_it():
+    cut = [run["text"] for mobile in (False, True) for count in (1, 3, 6)
+           for run in item_lines(plate(arms=ordinary_areas(count), mobile=mobile), 150) if run["text"].endswith("…")]
+    assert len(cut) >= 12 and not any(text.endswith(",…") for text in cut)
+
+
+def test_a_plate_over_its_budget_gives_up_the_second_line_of_each_list(monkeypatch):
+    two_lines = plate(arms=ordinary_areas(3))
+    monkeypatch.setattr(languages, "BYTE_BUDGET", len(two_lines.encode()) - 1)
+    lighter = plate(arms=ordinary_areas(3))
+    assert len(item_lines(two_lines)) == 6 and len(item_lines(lighter)) == 3
+    assert {"Frontend", "Backend", "Data"} <= set(texts(lighter))           # the areas themselves all stay
+
+
+def test_a_plate_that_cannot_be_made_to_fit_says_so_in_the_log_and_is_drawn_anyway(monkeypatch, caplog):
+    monkeypatch.setattr(languages, "BYTE_BUDGET", 1000)
+    with caplog.at_level("WARNING"):
+        svg = plate(arms=ordinary_areas(3))
+    ET.fromstring(svg)
+    assert "over the" in caplog.text and "tech-stack" in caplog.text
