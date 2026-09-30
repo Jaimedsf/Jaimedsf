@@ -236,3 +236,79 @@ def test_a_featured_project_that_no_longer_exists_is_left_out_and_the_rest_is_dr
     assert (variables["o2"], variables["n2"]) == ("ghost", "gone")
     featured = (tmp_path / "out" / "projects-constellation.svg").read_text(encoding="utf-8")
     assert "difference" in featured and "gone" not in featured
+
+
+# ── what the review of this part found ───────────────────────────────────────
+
+@pytest.mark.parametrize("content", [b"username: [unclosed", b"username: ada\n\tprofile: tab", b"\xff\xfe not utf-8"])
+def test_a_config_that_cannot_be_parsed_is_a_config_error_with_the_reason(tmp_path, content):
+    path = tmp_path / "config.yml"
+    path.write_bytes(content)
+    with pytest.raises(ConfigError, match="config"):
+        main.run(path, tmp_path / "out", demo=True, token="", today=TODAY)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_unparseable_config_ends_with_a_message_not_a_traceback(project, caplog):
+    (project / "config.yml").write_text("username: [unclosed", encoding="utf-8")
+    with pytest.raises(SystemExit) as stop:
+        main.main([])
+    assert stop.value.code == 1 and "Invalid config" in caplog.text
+
+
+def test_a_config_without_projects_generates_like_any_other(tmp_path, fetched):
+    config = {key: value for key, value in CONFIG.items() if key != "projects"}
+    written = main.run(write_config(tmp_path, config), tmp_path / "out", demo=False, token="tok", today=TODAY)
+    assert len(written) == 16 and fetched[0]["extra_repos"] == []
+
+
+def test_a_project_listed_twice_is_asked_for_and_drawn_once(tmp_path, fetched):
+    config = dict(CONFIG, projects=CONFIG["projects"] + [{"repo": "Babbage/Difference"}])
+    main.run(write_config(tmp_path, config), tmp_path / "out", demo=False, token="tok", today=TODAY)
+    assert fetched[0]["extra_repos"] == ["babbage/difference", "ada/engine"]
+
+
+def test_a_featured_project_github_does_not_have_is_named_in_a_warning(tmp_path, fetched, caplog):
+    config = dict(CONFIG, projects=[{"repo": "ghost/gone"}, {"repo": "galaxy-dev/nebula-ui"}])
+    with caplog.at_level("WARNING"):
+        main.run(write_config(tmp_path, dict(config, username="galaxy-dev")), tmp_path / "out", demo=False, token="tok",
+                 today=TODAY)
+    assert "ghost/gone" in caplog.text and "nebula-ui" not in caplog.text
+
+
+def test_a_repository_pinned_to_an_arm_that_is_not_among_the_stars_is_named_in_a_warning(tmp_path, fetched, caplog):
+    config = dict(CONFIG, username="galaxy-dev", projects=[],
+                  galaxy_arms=[{"name": "Frontend", "items": ["TypeScript"], "repos": ["nebula-ui", "nebulla-ui"]}])
+    with caplog.at_level("WARNING"):
+        main.run(write_config(tmp_path, config), tmp_path / "out", demo=False, token="tok", today=TODAY)
+    assert "nebulla-ui" in caplog.text and "'nebula-ui'" not in caplog.text
+
+
+def test_the_demo_flag_works_on_either_side_of_the_subcommand(project):
+    main.main(["--demo", "generate"])
+    assert len(generated(project)) == 16
+
+
+def test_colours_changed_in_a_version_one_config_reach_the_images(tmp_path):
+    raw = yaml.safe_load((ROOT / "tests" / "fixtures" / "config_v1.yml").read_text(encoding="utf-8"))
+    raw["theme"]["void"] = "#123456"
+    main.run(write_config(tmp_path, raw), tmp_path / "out", demo=True, token="", today=TODAY)
+    assert 'fill="#123456"' in (tmp_path / "out" / "galaxy-header.svg").read_text(encoding="utf-8")
+    assert 'fill="#123456"' not in (tmp_path / "out" / "galaxy-header-light.svg").read_text(encoding="utf-8")
+
+
+def test_the_counters_chosen_in_the_config_are_the_ones_drawn(tmp_path):
+    raw = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
+    raw["stats"] = {"metrics": ["repos"]}
+    main.run(write_config(tmp_path, raw), tmp_path / "out", demo=True, token="", today=TODAY)
+    card = (tmp_path / "out" / "stats-card.svg").read_text(encoding="utf-8")
+    assert "repositories" in card and "pull requests" not in card
+
+
+def test_another_username_draws_another_galaxy_from_the_same_data(tmp_path):
+    raw = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
+    main.run(EXAMPLE, tmp_path / "a", demo=True, token="", today=TODAY)
+    demo = load_demo()
+    from dataclasses import replace
+    other = build.render_all(validate_config(raw), replace(demo, login="someone-else"))
+    assert other["galaxy-header.svg"] != (tmp_path / "a" / "galaxy-header.svg").read_text(encoding="utf-8")

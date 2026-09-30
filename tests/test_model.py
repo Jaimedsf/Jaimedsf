@@ -348,3 +348,22 @@ def test_excluding_a_language_does_not_depend_on_how_its_name_is_cased():
     repo = make("site", languages={"TypeScript": 60, "HTML": 40})
     assert language_shares(snapshot([repo]), ["typescript"], 8) == [("HTML", 100.0)]
     assert language_shares(snapshot([repo]), ["html", "TYPESCRIPT"], 8) == []
+
+
+def test_a_project_listed_twice_is_featured_once():
+    repo = make("engine", stars=5, languages={"Python": 1})
+    config = {"projects": [{"repo": "ada/engine"}, {"repo": "engine"}, {"repo": "ADA/Engine"}]}
+    assert [f.name for f in featured(snapshot([repo]), config)] == ["engine"]
+
+
+def test_the_profile_repository_does_not_count_in_the_language_shares():
+    """It holds this generator's own code, which says nothing about what the user writes."""
+    profile = make("ada", languages={"Python": 377000})
+    work = make("engine", languages={"Rust": 1000})
+    assert language_shares(snapshot([profile, work]), [], 8) == [("Rust", 100.0)]
+
+
+def test_a_bare_pin_shared_by_several_other_owners_pins_none_of_them():
+    theirs = [make("tool", languages={"Go": 1}, owner=owner) for owner in ("babbage", "turing")]
+    arms = [{"name": "A", "items": ["Python"], "repos": ["tool"]}]
+    assert assign_arms(theirs, arms, [], "ada") == {"babbage/tool": None, "turing/tool": None}

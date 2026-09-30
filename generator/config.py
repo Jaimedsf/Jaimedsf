@@ -34,8 +34,14 @@ PALETTE_KEYS = ("dark", "light")
 
 
 def repo_key(name: str) -> str:
-    """How a repository is compared across arms: by name, without owner, ignoring case."""
+    """A repository's name without its owner, in lower case."""
     return str(name).split("/")[-1].lower()
+
+
+def full_key(name, login: str) -> str:
+    """"owner/name" in lower case for a repository as the config names it; without an owner it is the user's own."""
+    owner, _, repo = str(name).strip().rpartition("/")
+    return f"{owner or login}/{repo}".lower()
 
 
 class ConfigError(ValueError):
@@ -88,7 +94,7 @@ def validate_config(config: dict) -> dict:
     pinned = {}
     for i, arm in enumerate(galaxy_arms):
         for repo in arm.get("repos", []):
-            key = repo_key(repo)
+            key = full_key(repo, username)
             if key in pinned and pinned[key] != i:
                 raise ConfigError(
                     f"repository '{key}' is listed in galaxy_arms[{pinned[key]}] and galaxy_arms[{i}]; "
@@ -97,7 +103,9 @@ def validate_config(config: dict) -> dict:
             pinned[key] = i
 
     # projects — optional, validate entries if present
-    projects = config.get("projects", [])
+    projects = config.get("projects")
+    if projects is None:
+        projects = config["projects"] = []
     if not isinstance(projects, list):
         raise ConfigError("'projects' must be a list.")
     for i, proj in enumerate(projects):
@@ -106,15 +114,15 @@ def validate_config(config: dict) -> dict:
         if not proj.get("repo"):
             raise ConfigError(f"projects[{i}].repo is required.")
         arm_idx = proj.get("arm", 0)
-        if not isinstance(arm_idx, int) or arm_idx < 0 or arm_idx >= len(galaxy_arms):
+        if isinstance(arm_idx, bool) or not isinstance(arm_idx, int) or arm_idx < 0 or arm_idx >= len(galaxy_arms):
             raise ConfigError(
                 f"projects[{i}].arm must be an integer from 0 to {len(galaxy_arms) - 1}."
             )
-        if "description" in proj and not isinstance(proj["description"], str):
+        if proj.get("description") is not None and not isinstance(proj["description"], str):
             raise ConfigError(
                 f"projects[{i}].description must be text; put it in quotes (got {proj['description']!r})."
             )
-        key = repo_key(proj["repo"])
+        key = full_key(proj["repo"], username)
         if "arm" in proj and pinned.get(key, arm_idx) != arm_idx:
             raise ConfigError(
                 f"repository '{key}' is listed in galaxy_arms[{pinned[key]}].repos but projects[{i}].arm "
@@ -162,7 +170,6 @@ def validate_config(config: dict) -> dict:
     config["profile"].setdefault("tagline", "")
     config["profile"].setdefault("philosophy", "")
     config.setdefault("social", {})
-    config.setdefault("projects", [])
 
     # stats and languages — optional sections; one left empty in the YAML arrives as None
     stats = _section(config, "stats")

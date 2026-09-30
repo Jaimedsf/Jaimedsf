@@ -12,8 +12,8 @@ from pathlib import Path
 import requests
 import yaml
 
-from generator import build, data
-from generator.config import ConfigError, validate_config
+from generator import build, data, model
+from generator.config import ConfigError, full_key, validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -28,17 +28,26 @@ def run(config_path, out_dir, demo: bool, token: str, today: date, http=requests
     so a failure (ConfigError, data.DataError, a network error) leaves the
     images of the last good run untouched.
     """
-    with open(config_path, encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle)
-    if not isinstance(raw, dict):
-        raise ConfigError("the config file must be a mapping of keys, like config.example.yml.")
+    try:
+        with open(config_path, encoding="utf-8") as handle:
+            raw = yaml.safe_load(handle)
+    except (yaml.YAMLError, UnicodeDecodeError) as error:
+        raise ConfigError(f"the config file could not be read as YAML: {error}") from error
     config = validate_config(raw)
 
     if demo:
         snap = data.load_demo()
     else:
-        featured = [str(project["repo"]) for project in config["projects"]]
-        snap = data.fetch(config["username"], token, featured, today, http=http)
+        featured = {}                                    # each featured project once, as first written
+        for project in config["projects"]:
+            featured.setdefault(full_key(project["repo"], config["username"]), str(project["repo"]).strip())
+        snap = data.fetch(config["username"], token, list(featured.values()), today, http=http)
+        missing, pins = model.unmatched(snap, config)
+        for name in missing:
+            logger.warning("Featured project '%s' was not found on GitHub; it is left out.", name)
+        for name in pins:
+            logger.warning("galaxy_arms lists the repository '%s', which is not one of the stars drawn; "
+                           "check its spelling.", name)
     files = build.render_all(config, snap)
 
     out_dir = Path(out_dir)
@@ -93,6 +102,7 @@ def main(argv=None) -> None:
     gen_parser.add_argument(
         "--demo",
         action="store_true",
+        default=argparse.SUPPRESS,       # so `--demo generate` keeps the flag given before the subcommand
         help="Generate SVGs with demo data (no API calls, uses config.example.yml)",
     )
 

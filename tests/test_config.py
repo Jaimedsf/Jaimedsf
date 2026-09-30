@@ -218,3 +218,33 @@ class TestStatsAndLanguages:
         with caplog.at_level("WARNING"):
             assert validate_config(cfg)["languages"]["max_display"] == 20
         assert "max_display" in caplog.text
+
+
+class TestRepositoryNames:
+    """A name without an owner is the user's own repository; two owners can each have a repository of one name."""
+
+    def test_the_same_name_under_two_owners_can_sit_on_two_arms(self, cfg):
+        cfg["galaxy_arms"][0]["repos"] = ["alice/tool"]
+        cfg["galaxy_arms"][1]["repos"] = ["bob/tool"]
+        validate_config(cfg)
+
+    def test_a_bare_name_and_the_users_own_full_name_are_the_same_repository(self, cfg):
+        cfg["galaxy_arms"][0]["repos"] = ["nebula-ui"]
+        cfg["galaxy_arms"][1]["repos"] = ["Galaxy-Dev/Nebula-UI"]
+        with pytest.raises(ConfigError, match="pick one arm"):
+            validate_config(cfg)
+
+    def test_a_project_of_one_owner_does_not_clash_with_a_pin_of_another(self, cfg):
+        cfg["projects"] = [{"repo": "alice/tool", "arm": 0}]
+        cfg["galaxy_arms"][1]["repos"] = ["bob/tool"]
+        validate_config(cfg)
+
+    def test_a_project_description_left_empty_is_the_same_as_none_written(self, cfg):
+        cfg["projects"] = [{"repo": "galaxy-dev/nebula-ui", "description": None}]
+        validate_config(cfg)
+
+    @pytest.mark.parametrize("arm", [True, False, "0", 1.0])
+    def test_a_project_arm_must_be_a_whole_number(self, cfg, arm):
+        cfg["projects"] = [{"repo": "galaxy-dev/nebula-ui", "arm": arm}]
+        with pytest.raises(ConfigError, match="arm must be an integer"):
+            validate_config(cfg)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from generator.config import repo_key
+from generator.config import full_key, repo_key
 from generator.data import Repo, Snapshot
 
 # An arm lists technologies by the name people use; GitHub reports languages by another.
@@ -31,14 +31,8 @@ def _tech(name: str) -> str:
     return ALIASES.get(key, key)
 
 
-def _full(name, login: str) -> str:
-    """The key of the repository a config entry names; an entry without an owner is the user's own."""
-    owner, _, repo = str(name).rpartition("/")
-    return f"{owner or login}/{repo}".lower()
-
-
 def _featured_keys(config: dict, login: str) -> set:
-    return {_full(p["repo"], login) for p in config.get("projects", [])}
+    return {full_key(p["repo"], login) for p in config.get("projects", [])}
 
 
 def visible_repos(snap: Snapshot, config: dict, limit: int = STAR_LIMIT) -> list:
@@ -69,6 +63,30 @@ def _share_arm(repo: Repo, arm_techs: list) -> Optional[int]:
     return scores.index(best) if best >= MIN_SHARE else None
 
 
+def _meant(entry, repos: list, login: str) -> str:
+    """The key of the repository a pin names, among `repos`."""
+    full = full_key(entry, login)
+    if "/" in str(entry):
+        return full
+    same_name = [repo.key for repo in repos if repo.name.lower() == repo_key(entry)]
+    return same_name[0] if len(same_name) == 1 else full
+
+
+def unmatched(snap: Snapshot, config: dict) -> tuple:
+    """(featured projects GitHub did not return, pins that name no star), as the config writes them.
+
+    Nothing here stops a run; it is what the user should be told, because a
+    misspelt name otherwise just has no effect.
+    """
+    known = {repo.key for repo in snap.repos}
+    missing = [str(p["repo"]) for p in config.get("projects", []) if full_key(p["repo"], snap.login) not in known]
+    repos = visible_repos(snap, config)
+    drawn = {repo.key for repo in repos}
+    pins = [str(name) for arm in config.get("galaxy_arms", []) for name in arm.get("repos", [])
+            if _meant(name, repos, snap.login) not in drawn]
+    return missing, pins
+
+
 def assign_arms(repos: list, arms: list, projects: list, login: str = "") -> dict:
     """{repository key: arm index or None}: explicit pins first, then share of code.
 
@@ -77,11 +95,7 @@ def assign_arms(repos: list, arms: list, projects: list, login: str = "") -> dic
     the only other one that has it.
     """
     def meant(entry) -> str:
-        full = _full(entry, login)
-        if "/" in str(entry):
-            return full
-        same_name = [repo.key for repo in repos if repo.name.lower() == repo_key(entry)]
-        return same_name[0] if len(same_name) == 1 else full
+        return _meant(entry, repos, login)
 
     pinned = {}
     for project in projects:
@@ -106,13 +120,14 @@ class Featured:
 
 def featured(snap: Snapshot, config: dict) -> list:
     """Up to three featured projects, brightest first."""
-    by_full_name = {(r.owner.lower(), r.name.lower()): r for r in snap.repos}
-    items = []
+    by_key = {r.key: r for r in snap.repos}
+    items, seen = [], set()
     for project in config.get("projects", []):
-        owner, _, name = str(project["repo"]).rpartition("/")
-        repo = by_full_name.get(((owner or snap.login).lower(), name.lower()))
-        if repo is None:
+        key = full_key(project["repo"], snap.login)
+        repo = by_key.get(key)
+        if repo is None or key in seen:
             continue
+        seen.add(key)
         items.append(Featured(
             name=repo.name,
             description=project.get("description") or repo.description,
@@ -128,11 +143,13 @@ def featured(snap: Snapshot, config: dict) -> list:
 def language_shares(snap: Snapshot, exclude: list, max_display: int) -> list:
     """(language, percent) for the user's own non-fork repositories, largest first.
 
-    A language too small to round to a tenth of a percent is left out.
+    The profile repository is left out: it holds this generator's code, which
+    says nothing about what the user writes. A language too small to round to
+    a tenth of a percent is left out too.
     """
     login, skip, totals = snap.login.lower(), {str(name).lower() for name in exclude}, {}
     for repo in snap.repos:
-        if repo.is_fork or repo.owner.lower() != login:
+        if repo.is_fork or repo.owner.lower() != login or repo.name.lower() == login:
             continue
         for lang, size in repo.languages.items():
             if lang.lower() not in skip:

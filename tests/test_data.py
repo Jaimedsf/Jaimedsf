@@ -114,12 +114,12 @@ REST_REPOS = [
 
 
 def test_rest_snapshot_has_no_calendar():
-    s = from_rest("ada", {"public_repos": 2}, REST_REPOS, {"engine": {"Python": 800}}, 12, 5, TODAY)
+    s = from_rest("ada", {"public_repos": 2}, REST_REPOS, {"ada/engine": {"Python": 800}}, 12, 5, TODAY)
     assert s.weeks is None and s.total_contributions is None
 
 
 def test_rest_snapshot_matches_the_graphql_shape():
-    s = from_rest("ada", {"public_repos": 2}, REST_REPOS, {"engine": {"Python": 800}}, 12, 5, TODAY)
+    s = from_rest("ada", {"public_repos": 2}, REST_REPOS, {"ada/engine": {"Python": 800}}, 12, 5, TODAY)
     engine, loom = s.repos
     assert (engine.languages, engine.primary_language, engine.topics) == ({"Python": 800}, "Python", ("math",))
     assert (loom.is_fork, loom.description, loom.languages) == (True, "", {})
@@ -173,11 +173,12 @@ def test_fetch_without_a_token_uses_rest():
     assert s.weeks is None and s.counters["prs"] == 9
 
 
-def test_fetch_falls_back_to_rest_when_graphql_reports_errors():
+def test_with_a_token_a_graphql_failure_is_an_error_never_a_poorer_answer_from_rest():
+    """The REST path has no calendar. Falling back to it would draw a good image over with a poorer one."""
     http = FakeHTTP({"errors": [{"message": "boom"}]})
-    s = fetch("ada", "tok", [], TODAY, http=http)
-    assert s.weeks is None
-    assert ("POST", "https://api.github.com/graphql") in http.calls
+    with pytest.raises(DataError, match="GraphQL"):
+        fetch("ada", "tok", [], TODAY, http=http)
+    assert http.calls == [("POST", "https://api.github.com/graphql")]
 
 
 # ── demo ─────────────────────────────────────────────────────────────────────
@@ -203,19 +204,38 @@ def test_demo_file_is_a_graphql_payload_so_it_exercises_the_real_path():
     assert "user" in payload["data"] and "today" in payload
 
 
-# ── review fixes: a bad GraphQL answer must fall back, never crash ───────────
+# ── a bad GraphQL answer is a clear error, never a crash and never a fallback ─
+
+@pytest.mark.parametrize("payload", [
+    {"data": None, "errors": [{"message": "timeout"}]},
+    {"data": {"user": None}},
+    {"unexpected": True},
+    [],
+])
+def test_a_graphql_answer_that_cannot_be_read_is_a_data_error(payload):
+    http = FakeHTTP(payload)
+    with pytest.raises(DataError):
+        fetch("ada", "tok", [], TODAY, http=http)
+    assert all("/graphql" in url for _method, url in http.calls)
 
 
-
-def test_fetch_falls_back_when_graphql_returns_null_data():
-    http = FakeHTTP({"data": None, "errors": [{"message": "timeout"}]})
-    assert fetch("ada", "tok", [], TODAY, http=http).weeks is None
-
-
-def test_fetch_falls_back_when_the_graphql_payload_cannot_be_read():
+def test_a_graphql_answer_without_the_calendar_is_a_data_error():
     broken = json.loads(json.dumps(SAMPLE))
     broken["data"]["user"]["contributionsCollection"] = None
-    assert fetch("ada", "tok", [], TODAY, http=FakeHTTP(broken)).weeks is None
+    with pytest.raises(DataError):
+        fetch("ada", "tok", [], TODAY, http=FakeHTTP(broken))
+
+
+def test_a_server_error_on_graphql_is_passed_on_not_papered_over():
+    class Down(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url))
+            return FakeResponse({"message": "Bad Gateway"}, status=502)
+
+    http = Down(SAMPLE)
+    with pytest.raises(requests.exceptions.HTTPError):
+        fetch("ada", "tok", [], TODAY, http=http)
+    assert len(http.calls) == 1
 
 
 def test_null_repository_nodes_and_null_languages_are_tolerated():
@@ -257,18 +277,91 @@ class RateLimited(FakeHTTP):
         return super().request(method, url, **kwargs)
 
 
-def test_a_rate_limit_never_makes_the_run_sleep(monkeypatch):
+def test_a_rate_limit_in_the_middle_of_the_languages_stops_the_run_without_sleeping(monkeypatch):
+    """Shares computed from some of the repositories would be wrong, so there is no partial answer."""
     naps = []
     monkeypatch.setattr("time.sleep", naps.append)
     http = RateLimited(SAMPLE)
-    many = [dict(REST_REPOS[0], name=f"r{i}") for i in range(40)]
-    monkeypatch.setattr(http, "request", (lambda original: lambda method, url, **kw:
-                        FakeResponse(many if kw["params"]["page"] == 1 else [])
-                        if "/users/ada/repos" in url else original(method, url, **kw))(http.request))
-    snap_ = fetch("ada", "", [], TODAY, http=http)
+    with pytest.raises(DataError, match="rate limit.*GITHUB_TOKEN"):
+        fetch("ada", "", [], TODAY, http=http)
     assert naps == []
-    assert len([c for c in http.calls if "/languages" in c[1]]) == 1      # gave up after the first refusal
-    assert len(snap_.repos) == 40 and all(r.languages == {} for r in snap_.repos)
+    assert len([c for c in http.calls if "/languages" in c[1]]) == 1      # gave up at the first refusal
+
+
+class ManyRepos(FakeHTTP):
+    """A profile with 130 repositories, in two pages, the n-th with n stars."""
+
+    def request(self, method, url, **kwargs):
+        if "/users/ada/repos" in url:
+            self.calls.append((method, url))
+            page = kwargs["params"]["page"]
+            first, last = (0, 100) if page == 1 else (100, 130) if page == 2 else (0, 0)
+            return FakeResponse([dict(REST_REPOS[0], name=f"r{i}", stargazers_count=i) for i in range(first, last)])
+        return super().request(method, url, **kwargs)
+
+
+def test_without_a_token_every_page_of_repositories_is_read():
+    snap_ = fetch("ada", "", [], TODAY, http=ManyRepos(SAMPLE))
+    assert len(snap_.repos) == 130
+
+
+def test_without_a_token_languages_are_read_for_the_forty_brightest_repositories_only():
+    """Anonymous GitHub allows 60 requests an hour; one call per repository would never finish a large profile."""
+    http = ManyRepos(SAMPLE)
+    snap_ = fetch("ada", "", [], TODAY, http=http)
+    asked = [url.split("/repos/ada/")[1].split("/")[0] for _method, url in http.calls if "/languages" in url]
+    assert asked == [f"r{i}" for i in range(129, 89, -1)]
+    assert len(http.calls) <= 60
+    assert sum(1 for r in snap_.repos if r.languages) == 40
+
+
+def test_the_rest_path_takes_the_username_as_github_spells_it():
+    class Cased(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            if url.lower().endswith("/users/ada"):
+                self.calls.append((method, url))
+                return FakeResponse({"login": "Ada", "public_repos": 2})
+            return super().request(method, url.replace("/users/ADA", "/users/ada"), **kwargs)
+
+    assert fetch("ADA", "", [], TODAY, http=Cased(SAMPLE)).login == "Ada"
+
+
+def test_on_the_rest_path_two_repositories_of_one_name_keep_their_own_languages():
+    class Twins(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            if url.endswith("/repos/babbage/engine"):
+                self.calls.append((method, url))
+                return FakeResponse(dict(REST_REPOS[0], owner={"login": "babbage"}, language="Rust"))
+            if url.endswith("/repos/babbage/engine/languages"):
+                self.calls.append((method, url))
+                return FakeResponse({"Rust": 99999})
+            return super().request(method, url, **kwargs)
+
+    snap_ = fetch("ada", "", ["babbage/engine", "babbage/engine"], TODAY, http=Twins(SAMPLE))
+    by_key = {r.key: r.languages for r in snap_.repos}
+    assert by_key["ada/engine"] == {"Python": 800} and by_key["babbage/engine"] == {"Rust": 99999}
+    assert [r.key for r in snap_.repos].count("babbage/engine") == 1          # listed twice, read once
+
+
+def test_the_token_travels_in_the_authorization_header_and_every_call_has_a_timeout():
+    seen = []
+
+    class Watching(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            seen.append(kwargs)
+            return super().request(method, url, **kwargs)
+
+    fetch("ada", "tok", [], TODAY, http=Watching(SAMPLE))
+    fetch("ada", "", [], TODAY, http=Watching(SAMPLE))
+    assert seen[0]["headers"]["Authorization"] == "Bearer tok"
+    assert all("Authorization" not in kwargs["headers"] for kwargs in seen[1:])
+    assert all(kwargs.get("timeout") for kwargs in seen)
+
+
+def test_a_repository_never_pushed_to_takes_its_creation_day():
+    never = dict(REST_REPOS[0], pushed_at=None)
+    snap_ = from_rest("ada", {"public_repos": 1}, [never], {}, 0, 0, TODAY)
+    assert snap_.repos[0].pushed == date(2024, 3, 1)
 
 
 def test_a_rate_limit_on_the_profile_itself_is_a_clear_error():
@@ -283,10 +376,21 @@ def test_a_rate_limit_on_the_profile_itself_is_a_clear_error():
 
 
 def test_counters_the_rate_limit_kept_from_being_read_are_unknown_not_zero():
-    """Once GitHub starts refusing, pull requests and issues were never counted: that is None, not 0."""
-    snap_ = fetch("ada", "", [], TODAY, http=RateLimited(SAMPLE))
+    """The search API has a limit of its own. If it refuses, pull requests and issues are unknown, not 0."""
+    class SearchRefused(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            if "/search/issues" in url:
+                self.calls.append((method, url))
+                response = FakeResponse({"message": "API rate limit exceeded"}, status=403)
+                response.text = "API rate limit exceeded"
+                return response
+            return super().request(method, url, **kwargs)
+
+    http = SearchRefused(SAMPLE)
+    snap_ = fetch("ada", "", [], TODAY, http=http)
     assert snap_.counters["prs"] is None and snap_.counters["issues"] is None
     assert snap_.counters["repos"] == 2 and snap_.counters["stars"] is not None
+    assert len([c for c in http.calls if "/search/issues" in c[1]]) == 1      # asked once, not once per counter
 
 
 def test_counters_that_were_read_are_kept_even_when_zero():
@@ -299,3 +403,17 @@ def test_counters_that_were_read_are_kept_even_when_zero():
 
     snap_ = fetch("ada", "", [], TODAY, http=NoPullRequests(SAMPLE))
     assert snap_.counters["prs"] == 0 and snap_.counters["issues"] == 0
+
+
+def test_without_a_token_a_featured_project_that_is_gone_is_left_out_and_the_rest_is_read(caplog):
+    class Gone(FakeHTTP):
+        def request(self, method, url, **kwargs):
+            if url.endswith("/repos/ghost/gone"):
+                self.calls.append((method, url))
+                return FakeResponse({"message": "Not Found"}, status=404)
+            return super().request(method, url, **kwargs)
+
+    with caplog.at_level("WARNING"):
+        snap_ = fetch("ada", "", ["ghost/gone"], TODAY, http=Gone(SAMPLE))
+    assert {r.key for r in snap_.repos} == {"ada/engine", "ada/loom"}
+    assert "ghost/gone" in caplog.text
