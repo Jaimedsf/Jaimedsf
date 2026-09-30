@@ -270,51 +270,63 @@ def label_text(name: str, geo: Geometry) -> str:
     return wrap(name, label_size(geo), LABEL_STYLE, LABEL_MAX_WIDTH, max_lines=1)[0]
 
 
+def _overlap(a: tuple, b: tuple, gap: float = 0.0) -> bool:
+    return (a[0] < b[0] + b[2] + gap and b[0] < a[0] + a[2] + gap
+            and a[1] < b[1] + b[3] + gap and b[1] < a[1] + a[3] + gap)
+
+
 def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obstacles: list = (),
-                 texts: dict = None) -> dict:
+                 texts: dict = None, avoid: list = ()) -> dict:
     """{name: (x, baseline, anchor, box)} for the stars that get their name written.
 
-    obstacles are boxes already taken by other text (the arms' names). texts
-    maps a name to what is written for it, when that is not the name itself.
+    obstacles are boxes of text a label must not sit on (the identity column);
+    avoid are boxes it should stay off if it can (the stretches of the arms'
+    names, which a label is drawn over when it cannot). texts maps a name to
+    what is written for it, when that is not the name itself.
 
-    Each label tries the right and the left of its star, level with it and a
-    line above or below, and takes the spot that covers the fewest other stars
-    and labels. Brighter stars choose first. box is (left, top, width, height)
-    of the backdrop behind the text.
+    Each label tries a ring of spots around its star: to the right and to the
+    left, level with it or up to three lines above or below, and centred over
+    or under it. A spot that would leave the frame is moved inside first.
+    The label takes the spot that sits on no other label and no obstacle;
+    among those, the one that crosses least of what it should avoid and
+    covers the fewest stars; among those, the one nearest the star's right.
+    Brighter stars choose first. box is (left, top, width, height) of the
+    backdrop behind the text.
     """
     size = label_size(geo)
     atlas = font(LABEL_STYLE)
     ascent = size * atlas["ascent"] / atlas["upm"]
     box_height = size * (atlas["ascent"] + atlas["descent"]) / atlas["upm"] - 2
-    placed, boxes = {}, list(obstacles)
+    placed, taken = {}, list(obstacles)
     for name in sorted(names, key=lambda n: (-stars.get(n, 0), n)):
         x, y = positions[name]
         width = measure(label_text((texts or {}).get(name, name), geo), size, LABEL_STYLE)
         reach = spike_half(stars.get(name, 0)) + 5
+        spots = [(side, y + 4.5 + dy, abs(dy) / 15 + (0 if side == "start" else 0.5))
+                 for dy in (0, -15, 15, -30, 30, -45, 45) for side in ("start", "end")]
+        spots += [("middle", y - reach - 1, 4.0), ("middle", y + reach + ascent - 3, 4.5)]
         best = None
-        for right in (True, False):
-            for dy in (0, -15, 15):
-                baseline = y + 4.5 + dy
-                text_x = x + reach if right else x - reach
-                left = text_x - 4 if right else text_x - width - 4
-                box = (left, baseline - ascent + 1, width + 8, box_height)
-                off_frame = (box[0] < 2 or box[1] < 2 or box[0] + box[2] > geo.width - 2
-                             or box[1] + box[3] > geo.height - 2)
-                covered = sum(1 for other, (ox, oy) in positions.items()
-                              if other != name and box[0] - 6 < ox < box[0] + box[2] + 6
-                              and box[1] - 6 < oy < box[1] + box[3] + 6)
-                crowded = sum(1 for b in boxes if box[0] < b[0] + b[2] + 4 and b[0] < box[0] + box[2] + 4
-                              and box[1] < b[1] + b[3] + 4 and b[1] < box[1] + box[3] + 4)
-                score = off_frame * 1000 + crowded * 20 + covered * 10 + abs(dy) / 15 + (0 if right else 0.5)
-                if best is None or score < best[0]:
-                    best = (score, text_x, baseline, "start" if right else "end", box)
+        for anchor, baseline, liking in spots:
+            left = {"start": x + reach - 4, "end": x - reach - width - 4, "middle": x - width / 2 - 4}[anchor]
+            top = baseline - ascent + 1
+            # a star near the edge may have no spot inside the frame: move the label back in
+            dx = min(max(left, 2), max(geo.width - 2 - (width + 8), 2)) - left
+            dy = min(max(top, 2), max(geo.height - 2 - box_height, 2)) - top
+            box = (left + dx, top + dy, width + 8, box_height)
+            sitting = sum(1 for other in taken if _overlap(box, other, 2))
+            crossing = sum(1 for other in avoid if _overlap(box, other))
+            on_itself = box[0] - 3 < x < box[0] + box[2] + 3 and box[1] - 3 < y < box[1] + box[3] + 3
+            covered = sum(1 for other, (ox, oy) in positions.items()
+                          if other != name and box[0] - 6 < ox < box[0] + box[2] + 6
+                          and box[1] - 6 < oy < box[1] + box[3] + 6)
+            score = (sitting * 1000 + on_itself * 300 + min(crossing, 4) * 60 + covered * 10
+                     + (abs(dx) + abs(dy)) * 0.5 + liking)
+            if best is None or score < best[0]:
+                text_x = {"start": box[0] + 4, "end": box[0] + box[2] - 4, "middle": box[0] + box[2] / 2}[anchor]
+                best = (score, text_x, baseline + dy, anchor, box)
         _score, text_x, baseline, anchor, box = best
-        # a star in a corner may have no spot inside the frame: push the label back in
-        dx = min(max(box[0], 2), max(geo.width - 2 - box[2], 2)) - box[0]
-        dy = min(max(box[1], 2), max(geo.height - 2 - box[3], 2)) - box[1]
-        box = (box[0] + dx, box[1] + dy, box[2], box[3])
-        boxes.append(box)
-        placed[name] = (text_x + dx, baseline + dy, anchor, box)
+        taken.append(box)
+        placed[name] = (text_x, baseline, anchor, box)
     return placed
 
 
@@ -363,8 +375,12 @@ BYTE_BUDGET = 110_000             # the file's ceiling (spec, section 5)
 THINNING = (1.0, 0.75, 0.55, 0.4, 0.25)   # share of the dust kept, tried in order until the file fits
 
 
-def _identity(profile: dict, theme, geo: Geometry, ts: Typesetter) -> str:
-    """Name, tagline and (on desktop) the philosophy line. Never animated: readable from the first frame."""
+def _identity(profile: dict, theme, geo: Geometry, ts: Typesetter) -> tuple:
+    """(markup, boxes) of the name, the tagline and (on desktop) the philosophy line.
+
+    Never animated: readable from the first frame. The boxes are what each
+    line occupies, for the star names to keep off.
+    """
     mobile = geo.width < 500
     left = 24 if mobile else 44
     room = geo.width - 2 * left if mobile else geo.cx - geo.radius - 10 - left
@@ -374,18 +390,20 @@ def _identity(profile: dict, theme, geo: Geometry, ts: Typesetter) -> str:
     while size > smallest and measure(name, size, "light") > room:
         size -= 2
     y = 58 if mobile else 196
-    out = [ts.line(left, y, wrap(name, size, "light", room, max_lines=1)[0] if name.strip() else "", size,
-                   theme.ink, "light")]
+    lines = [(left, y, (wrap(name, size, "light", room, max_lines=1) or [""])[0], size, theme.ink, "light")]
     tagline = str(profile.get("tagline") or "")
-    if tagline.strip():
-        tag_size = 17 if mobile else 20
-        out.append(ts.line(left + (0 if mobile else 1), y + (26 if mobile else 32),
-                           wrap(tagline, tag_size, "italic", room, max_lines=1)[0], tag_size, theme.mute, "italic"))
+    tag_size = 17 if mobile else 20
+    lines.append((left + (0 if mobile else 1), y + (26 if mobile else 32),
+                  (wrap(tagline, tag_size, "italic", room, max_lines=1) or [""])[0], tag_size, theme.mute, "italic"))
     if not mobile:
         for index, line in enumerate(wrap(str(profile.get("philosophy") or ""), 14.5, "italic", min(room, 320),
                                           balance=True)):
-            out.append(ts.line(left + 1, y + 78 + index * 19, line, 14.5, theme.mute, "italic"))
-    return "".join(out)
+            lines.append((left + 1, y + 78 + index * 19, line, 14.5, theme.mute, "italic"))
+    lines = [line for line in lines if line[2]]
+    boxes = [(x, base - text_size * 0.85, measure(text, text_size, style), text_size * 1.15)
+             for x, base, text, text_size, _fill, style in lines]
+    return "".join(ts.line(x, base, text, text_size, fill, style)
+                   for x, base, text, text_size, fill, style in lines), boxes
 
 
 def _sky(geo: Geometry, theme, rng, motion) -> str:
@@ -526,6 +544,7 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
         x, y = positions[name]
         return f'<g transform="translate({num(x)} {num(y)})">{inner}</g>'
 
+    names_at = len(body)                                   # the arms' names go in here, under the stars
     if len(order) <= ENTRANCE_STEPS:
         # few enough to ignite one by one
         body += [at(name, f'<g{mo.cls("pop", delay=when[name])}>{glyph(name, index)}</g>')
@@ -537,22 +556,28 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
         body += [f'<g{mo.cls("soft", delay=delay)}>{"".join(glyphs)}</g>' for delay, glyphs in sorted(batches.items())]
 
     size = label_size(geo)
-    star_counts = {name: r.stars for name, r in repos.items()}
+    identity, identity_boxes = _identity(profile, theme, geo, ts)
     arm_names = arm_name_paths(model, geo)
-    taken = [(min(x for x, _y in points) - size, min(y for _x, y in points) - size,
-              max(x for x, _y in points) - min(x for x, _y in points) + 2 * size,
-              max(y for _x, y in points) - min(y for _x, y in points) + 2 * size) for _name, points in arm_names]
+    # what a star's name should stay off if it can: every stretch of an arm's name
+    half = size * 0.75
+    stretches = [(px - half, py - half, 2 * half, 2 * half) for _name, points in arm_names for px, py in points]
+    star_counts = {name: r.stars for name, r in repos.items()}
     written = {name: r.name for name, r in repos.items()}
+    labels = []
     for name, (x, baseline, anchor, box) in place_labels(sorted(model.labels & set(positions)), positions,
-                                                          star_counts, geo, taken, written).items():
-        body.append(f'<g{mo.cls("soft", delay=when[name] + 0.35)}>'
-                    f'<rect x="{num(box[0])}" y="{num(box[1])}" width="{num(box[2])}" height="{num(box[3])}" rx="8" '
-                    f'fill="{theme.chip[0]}" fill-opacity="{theme.chip[1]}" filter="url(#lb)"/>'
-                    f'{ts.line(x, baseline, label_text(written[name], geo), size, theme.ink, LABEL_STYLE, anchor, halo=(theme.bg, 2.4, 0.55))}</g>')
-    for name, points in arm_names:
-        body.append(ts.on_curve(points, name, size, theme.mute, "italic", mo.cls("soft", delay=T_IN + 2.2),
-                                halo=(theme.bg, 3.5, 1)))
-    body.append(_identity(profile, theme, geo, ts))
+                                                          star_counts, geo, identity_boxes, written,
+                                                          stretches).items():
+        labels.append(f'<g{mo.cls("soft", delay=when[name] + 0.35)}>'
+                      f'<rect x="{num(box[0])}" y="{num(box[1])}" width="{num(box[2])}" height="{num(box[3])}" rx="8" '
+                      f'fill="{theme.chip[0]}" fill-opacity="{theme.chip[1]}" filter="url(#lb)"/>'
+                      f'{ts.line(x, baseline, label_text(written[name], geo), size, theme.ink, LABEL_STYLE, anchor, halo=(theme.bg, 2.4, 0.55))}</g>')
+    # arm names go under the stars and their names, as in a chart where the grid is drawn first
+    if arm_names:
+        curved = "".join(ts.on_curve(points, name, size, theme.mute, "italic", halo=(theme.bg, 3.5, 1))
+                         for name, points in arm_names)
+        body.insert(names_at, f'<g{mo.cls("soft", delay=T_IN + 2.2)}>{curved}</g>')
+    body += labels
+    body.append(identity)
     defs.append(ts.defs())
     title = f"Galaxy of {profile.get('name', '')}".strip()
     return frame(theme, geo.width, geo.height, "".join(body), title, _summary(model), "".join(defs), mo)
