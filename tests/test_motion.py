@@ -55,3 +55,25 @@ def test_switched_off_motion_emits_nothing():
 
 def test_only_passes_markup_through_when_motion_is_on():
     assert Motion().only("<g/>") == "<g/>"
+
+
+# ── classes a plate defines for itself ───────────────────────────────────────
+
+def test_a_plate_can_define_its_own_animation_class():
+    motion = Motion()
+    motion.define("flow", ".flow{animation:flow 22s linear infinite}@keyframes flow{to{transform:rotate(60deg)}}")
+    assert motion.cls("flow", duration=29) == ' class="flow" style="animation-duration:29s"'
+    assert motion.cls("flow", only=True) == ' class="flow mo" opacity="0"'
+    assert "@keyframes flow" in motion.css()
+
+
+def test_a_defined_class_costs_nothing_until_it_is_used():
+    motion = Motion()
+    motion.define("flow", ".flow{}")
+    assert motion.css() == ""
+
+
+def test_defining_a_class_does_nothing_when_motion_is_off():
+    motion = Motion(False)
+    motion.define("flow", ".flow{}")
+    assert motion.cls("flow") == "" and motion.css() == ""

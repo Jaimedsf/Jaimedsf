@@ -38,6 +38,8 @@ CATALOG = {
     # a line drawing itself; the path needs pathLength="1"
     "ldraw": ".ldraw{stroke-dasharray:1;animation:ldraw 2s cubic-bezier(.5,0,.2,1) both}"
              "@keyframes ldraw{from{stroke-dashoffset:1}}",
+    # the dense core of the galaxy turning slowly
+    "swirl": ".swirl{animation:swirl 60s linear infinite}@keyframes swirl{to{transform:rotate(360deg)}}",
     # a light running along a path once per cycle, idle for the rest of it
     "comet": ".comet{animation:comet var(--cy) linear var(--st) infinite}"
              "@keyframes comet{0%{stroke-dashoffset:var(--a);opacity:0}5%{opacity:var(--o)}"
@@ -49,6 +51,7 @@ class Motion:
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
         self._used: dict[str, str] = {}
+        self._defined: dict[str, str] = {}
         self._extra: list[str] = []
 
     def cls(self, name: str, delay: Optional[float] = None, duration: Optional[float] = None,
@@ -59,7 +62,7 @@ class Motion:
         """
         if not self.enabled:
             return ""
-        self._used[name] = CATALOG[name]
+        self._used[name] = self._defined[name] if name in self._defined else CATALOG[name]
         style = []
         if delay is not None:
             style.append(f"animation-delay:{num(delay, 2)}s")
@@ -73,6 +76,11 @@ class Motion:
     def only(self, svg: str) -> str:
         """Markup that exists just for motion."""
         return svg if self.enabled else ""
+
+    def define(self, name: str, css: str) -> None:
+        """An animation class of the plate's own; its CSS is only emitted if cls() uses it."""
+        if self.enabled:
+            self._defined[name] = css
 
     def add(self, css: str) -> None:
         """Plate-specific rules and keyframes."""
