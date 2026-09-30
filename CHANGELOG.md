@@ -19,7 +19,8 @@ Changed
 - Image sizes: the header is 850×430, contributions 850×254, languages 850×226 or taller, featured projects 850×214.
 - Which arm a repository belongs to follows its languages.
 - `galaxy_arms[].color` and the theme colours `nebula` and `star_dust` no longer have an effect. The other theme colours adjust the dark palette, and only when changed from their old defaults.
-- The `init` wizard asks for palettes and motion instead of colours.
+- The `init` wizard asks for palettes and motion instead of colours, and editing an existing config keeps everything the wizard does not ask about.
+- The profile repository's own code no longer counts in the language shares.
 - A run that cannot read the profile from GitHub fails and keeps the previous images, instead of writing zeros.
 - With a token, all data comes from one GraphQL request.
 

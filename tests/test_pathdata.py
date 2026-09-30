@@ -106,3 +106,9 @@ def relative_is_stable(d):
 def test_path_data_outside_what_it_understands_is_refused_not_rewritten_into_another_shape(d):
     with pytest.raises(ValueError):
         relative(d)
+
+
+@pytest.mark.parametrize("d", ["M0 0L5 -", "M0 0Z5 5", "M0 0L5 5-"])
+def test_stray_signs_and_numbers_after_a_close_are_refused_too(d):
+    with pytest.raises(ValueError):
+        relative(d)

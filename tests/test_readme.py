@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from generator import build
@@ -83,6 +84,8 @@ def test_every_picture_describes_its_plate_for_who_cannot_see_it():
 # ── README.md and what ships with it ─────────────────────────────────────────
 
 def test_the_project_readme_previews_every_plate_with_the_same_picture_blocks():
+    if "## Architecture" not in (ROOT / "README.md").read_text(encoding="utf-8"):
+        pytest.skip("README.md is a profile README here, not the project's")
     blocks = pictures((ROOT / "README.md").read_text(encoding="utf-8"))
     assert [fallback for _sources, fallback in blocks] == [f"{stem}.svg" for stem in build.RENDERERS]
     for sources, fallback in blocks:
@@ -101,7 +104,7 @@ def test_every_file_the_readmes_point_at_exists_in_the_repository():
 def test_the_preview_images_are_what_the_demo_mode_draws_today():
     """`make demo` refreshes them. A fork that has its own config.yml shows its own profile instead."""
     if (ROOT / "config.yml").exists():
-        return
+        pytest.skip("this checkout has its own config.yml: its images are its profile's, not the demo's")
     config = validate_config(example())
     for name, svg in build.render_all(config, load_demo()).items():
         path = ROOT / "assets" / "generated" / name
@@ -118,6 +121,8 @@ def test_the_version_is_two():
 
 def test_the_readme_describes_the_modules_that_exist():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
+    if "## Architecture" not in text:
+        pytest.skip("README.md is a profile README here, not the project's")
     tree = text[text.index("## Architecture"):]
     for module in re.findall(r"[├└]── (\w+\.py)", tree):
         assert list((ROOT / "generator").rglob(module)), f"README lists {module}, which is not there"

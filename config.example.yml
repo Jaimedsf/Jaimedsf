@@ -12,7 +12,8 @@
 # Your GitHub username (required)
 username: galaxy-dev
 
-# Profile information displayed in the galaxy header
+# Profile information. name, tagline and philosophy are drawn in the galaxy header;
+# company, location and bio are not drawn: keep them here for your own reference.
 profile:
   name: "Nyx Orion"
   tagline: "Full Stack Developer & Open Source Explorer"
@@ -23,7 +24,7 @@ profile:
     Passionate about distributed systems, developer experience, and the open-source ecosystem.
   philosophy: '"The best code is the code that empowers others."'
 
-# Social links displayed at the bottom of the profile
+# Social links. Not drawn in the images: write them in your README (see README.profile.md)
 social:
   email: "nyx@stellarlabs.dev"
   linkedin: "nyxorion"
@@ -72,14 +73,16 @@ projects:
 theme:
   dark: "deep-sky"
   light: "deep-sky"
-  # Fine tuning of the dark palette (optional, hex colours):
+  # Fine tuning of the dark palette (optional, hex colours). The values below are
+  # the version 1 defaults, which are ignored as such: a colour only takes effect
+  # once you change it.
   # void: "#080c14"            # Background
   # text_bright: "#f1f5f9"     # Primary text
   # text_dim: "#94a3b8"        # Secondary text
   # text_faint: "#64748b"      # Hairlines
-  # synapse_cyan: "#00d4ff"    # Active stars and cool dust
-  # dendrite_violet: "#a78bfa" # Neutral dust
-  # axon_amber: "#ffb020"      # Dormant stars and warm dust
+  # synapse_cyan: "#00d4ff"    # Active stars, first dust colour
+  # dendrite_violet: "#a78bfa" # Second dust colour
+  # axon_amber: "#ffb020"      # Dormant stars, third dust colour
 
 # Motion: set to false for still images.
 # Visitors whose system asks for reduced motion always get still images.

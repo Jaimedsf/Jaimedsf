@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from generator.motion import Motion
 from generator.svg import comet, frame, num, path_def, spike_half, star, star_defs
-from generator.typeset import ELLIPSIS, Typesetter, measure, wrap
+from generator.typeset import Typesetter, measure, wrap
 
 LETTERS = "αβγδε"
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")

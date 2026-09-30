@@ -14,7 +14,7 @@ import re
 
 _ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "C": 6}
 _COMMAND = re.compile(r"([MLHVQCZ])([^MLHVQCZ]*)")
-_WHOLE = re.compile(r"(?:[MLHVQCZ][-0-9 ]*)*")
+_WHOLE = re.compile(r"(?:Z|[MLHVQC] ?-?\d+(?: ?-?\d+)*)*")
 
 
 def _numbers(values) -> str:
