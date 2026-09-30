@@ -331,3 +331,14 @@ def test_a_bare_name_reaches_another_owners_repository_when_the_user_has_none_by
     theirs = make("difference", languages={"Go": 1}, owner="babbage")
     arms = [{"name": "A", "items": ["Python"], "repos": ["difference"]}]
     assert assign_arms([theirs], arms, [], "ada") == {"babbage/difference": 0}
+
+
+def test_a_language_too_small_to_round_to_a_tenth_of_a_percent_is_not_listed():
+    big = make("engine", languages={"Python": 999000, "Dockerfile": 900})
+    tiny = make("infra", languages={"HCL": 100})
+    assert language_shares(snapshot([big, tiny]), [], 8) == [("Python", 99.9), ("Dockerfile", 0.1)]
+
+
+def test_languages_that_are_all_dust_next_to_one_giant_leave_just_the_giant():
+    repo = make("mono", languages={"C": 10_000_000, "Awk": 10, "Sed": 9})
+    assert language_shares(snapshot([repo]), [], 8) == [("C", 100.0)]

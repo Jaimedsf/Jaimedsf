@@ -315,3 +315,25 @@ def test_description_lists_languages_and_stack():
 
 def test_same_input_same_bytes():
     assert plate() == plate() and plate(mobile=True) == plate(mobile=True)
+
+
+# ── shares at the edge of nothing ────────────────────────────────────────────
+
+def test_sweep_time_holds_at_its_ends_for_a_fraction_a_hair_outside_them():
+    assert sweep_time(1 + 1e-12) == 1 and sweep_time(-1e-12) == 0
+    assert isinstance(sweep_time(1.0000001), float)
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+@pytest.mark.parametrize("shares", [
+    [("Python", 99.9), ("Shell", 0.1), ("Makefile", 0.0)],
+    [("Python", 100.0), ("Shell", 0.0)],
+    [("Python", 60.0), ("Go", 40.0), ("C", 0.0), ("Lua", 0.0)],
+    [("Python", 0.0)],
+])
+def test_a_language_that_rounds_to_nothing_does_not_break_the_plate(shares, mobile):
+    svg = plate(shares=shares, mobile=mobile)
+    ET.fromstring(svg)
+    rules.svg_is_sound(svg)
+    rules.text_stays_inside(svg)
+    assert all(width > 0 for _x, width, _colour in segments(svg))

@@ -126,7 +126,10 @@ def featured(snap: Snapshot, config: dict) -> list:
 
 
 def language_shares(snap: Snapshot, exclude: list, max_display: int) -> list:
-    """(language, percent) for the user's own non-fork repositories, largest first."""
+    """(language, percent) for the user's own non-fork repositories, largest first.
+
+    A language too small to round to a tenth of a percent is left out.
+    """
     login, skip, totals = snap.login.lower(), set(exclude), {}
     for repo in snap.repos:
         if repo.is_fork or repo.owner.lower() != login:
@@ -138,7 +141,8 @@ def language_shares(snap: Snapshot, exclude: list, max_display: int) -> list:
     if not whole:
         return []
     ranked = sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))[:max_display]
-    return [(lang, round(size / whole * 100, 1)) for lang, size in ranked]
+    shares = [(lang, round(size / whole * 100, 1)) for lang, size in ranked]
+    return [(lang, percent) for lang, percent in shares if percent > 0]
 
 
 def weekly_series(snap: Snapshot) -> Optional[tuple]:

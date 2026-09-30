@@ -24,7 +24,7 @@ LIST_LINES = 2                    # lines a focus area's items may take
 
 def sweep_time(x: float) -> float:
     """When, from 0 to 1, a sweep that decelerates as a cubic ease-out reaches fraction x of the width."""
-    return 1 - (1 - x) ** (1 / 3)
+    return 1 - (1 - min(max(x, 0.0), 1.0)) ** (1 / 3)
 
 
 def _percent(value: float) -> str:
@@ -97,6 +97,7 @@ def _summary(shares: list, arms: list) -> str:
 def render(shares: list, arms: list, theme, mobile: bool = False, motion: bool = True) -> str:
     """shares is what model.language_shares returns; arms is the config's galaxy_arms."""
     mo, ts = Motion(motion), Typesetter()
+    shares = [(name, percent) for name, percent in shares if percent > 0]      # nothing to draw for a zero share
     width = 390 if mobile else 850
     x0, x1 = (24, width - 24) if mobile else (44, width - 44)
     heading_size = 13 if mobile else 14
