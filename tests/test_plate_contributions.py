@@ -25,7 +25,8 @@ def series(values, total=None):
 
 
 def year(peak_at=30, peak=482):
-    values = [20 + (i * 37) % 90 for i in range(53)]
+    """A year whose other weeks stay under a quarter of the peak, whatever the peak is."""
+    values = [round((20 + (i * 37) % 90) * peak / 482) for i in range(53)]
     values[peak_at] = peak
     return series(values, total=7005)
 
@@ -286,3 +287,140 @@ def test_description_tells_the_numbers():
 
 def test_same_input_same_bytes():
     assert plate() == plate() and plate(mobile=True) == plate(mobile=True)
+
+
+# ── the peak against the reference labels ────────────────────────────────────
+
+def ink(run, margin=0.0):
+    """(left, top, right, bottom) of a line of text, from its x-height to a little under the baseline."""
+    return (run["x"] - margin, run["y"] - run["size"] * 0.75 - margin,
+            run["x"] + run["width"] + margin, run["y"] + run["size"] * 0.2 + margin)
+
+
+def touching(a, b):
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+@pytest.mark.parametrize("peak", [22, 44, 60, 120, 482, 2400])
+def test_neither_the_peak_label_nor_its_star_ever_lands_on_a_reference_label(peak, mobile):
+    for peak_at in range(53):
+        svg = plate(data=year(peak_at=peak_at, peak=peak), mobile=mobile)
+        runs = text_runs(svg)
+        label = next(run for run in runs if "intheweekof" in run["text"])
+        levels = [run for run in runs if run["text"].endswith("aweek")]
+        x, y = (float(v) for v in re.search(
+            r'<g transform="translate\(([\d.]+) ([\d.]+)\)"><g[^>]*><circle r="[\d.]+" fill="url\(#hn\)"', svg).groups())
+        star = (x - 9, y - 9, x + 9, y + 9)
+        assert len(levels) == 2, f"a reference label is missing with the peak in week {peak_at}"
+        for level in levels:
+            assert not touching(ink(label, 2), ink(level)), f"peak label on '{level['text']}', week {peak_at}"
+            assert not touching(star, ink(level)), f"peak star on '{level['text']}', week {peak_at}"
+        rules.text_stays_inside(svg)
+
+
+def test_reference_labels_move_to_the_right_end_of_their_lines_when_the_peak_needs_the_left():
+    runs = {run["text"]: run for run in text_runs(plate(data=year(peak_at=1, peak=44)))}
+    assert runs["40aweek"]["x"] + runs["40aweek"]["width"] == pytest.approx(806, abs=0.2)
+    assert runs["20aweek"]["x"] + runs["20aweek"]["width"] == pytest.approx(806, abs=0.2)     # both, together
+
+
+def test_a_five_digit_peak_on_a_phone_may_drop_the_reference_label_it_would_cover_but_never_overlaps_it():
+    for peak_at in range(53):
+        svg = plate(data=year(peak_at=peak_at, peak=48000), mobile=True)
+        runs = text_runs(svg)
+        label = next(run for run in runs if "intheweekof" in run["text"])
+        for level in (run for run in runs if run["text"].endswith("aweek")):
+            assert not touching(ink(label, 2), ink(level))
+        rules.text_stays_inside(svg)
+
+
+# ── what the digest alone used to guard ──────────────────────────────────────
+
+def curve_points(svg):
+    """The points the curve passes through: the start and the end of every cubic."""
+    d = re.search(r'<path id="cv" d="([^"]+)"', svg).group(1)
+    start = tuple(float(v) for v in re.match(r"M([\d.]+) ([\d.]+)", d).groups())
+    return [start] + [tuple(float(v) for v in segment.split()[-2:]) for segment in d.split("C")[1:]]
+
+
+def test_the_curve_runs_through_the_five_week_average_of_every_week_not_through_the_weeks_themselves():
+    values, _days, _total, _peak = year()
+    svg = plate()
+    expected = [(44 + 762 * i / 52, 212 - 112 * average / 482) for i, average in enumerate(moving_average(values))]
+    drawn = curve_points(svg)
+    assert len(drawn) == 53
+    for (x, y), (ex, ey) in zip(drawn, expected):
+        assert x == pytest.approx(ex, abs=0.06) and y == pytest.approx(ey, abs=0.06)
+
+
+def test_the_chart_is_scaled_so_the_busiest_week_touches_its_top():
+    svg = plate()
+    x, y = re.search(r'<g transform="translate\(([\d.]+) ([\d.]+)\)"><g class="pop"', svg).groups()
+    assert (float(x), float(y)) == (pytest.approx(44 + 762 * 30 / 52, abs=0.06), 100)
+
+
+@pytest.mark.parametrize("values", [
+    [0] * 20 + [300] + [0] * 32,                         # one spike in an empty year
+    [0] * 10 + [200] * 8 + [0] * 35,                     # a plateau
+    [0, 0, 900, 0, 0, 0, 450, 0, 0, 900] * 5 + [0] * 3,  # teeth
+])
+def test_the_curve_and_its_wash_never_leave_the_chart(values):
+    for mobile in (False, True):
+        svg = plate(data=series(values), mobile=mobile)
+        top, base = (116, 224) if mobile else (100, 212)
+        for d in re.findall(r'd="(M[\d.]+ [\d.]+C[^"]+)"', svg):
+            ys = [float(v) for v in re.findall(r"-?[\d.]+", d)][1::2]
+            assert min(ys) >= top and max(ys) <= base
+
+
+def test_the_chart_has_its_baseline_two_reference_lines_a_wash_and_a_mark_per_month():
+    svg = plate()
+    assert '<path d="M44 212.5H806" stroke=' in svg
+    lines = re.findall(r'<path d="M44 ([\d.]+)H806" stroke="#[0-9a-f]{6}" stroke-dasharray="1 5"/>', svg)
+    assert [float(y) for y in lines] == [pytest.approx(212 - 112 * 200 / 482, abs=0.06),
+                                          pytest.approx(212 - 112 * 400 / 482, abs=0.06)]
+    assert len(re.findall(r'<path d="M[\d.]+ 212v5"', svg)) == 12
+    assert re.search(r'<path d="M[^"]+L806 212L44 212Z" fill="url\(#ws\)"', svg)
+
+
+def test_an_empty_year_has_no_busiest_week_in_its_description():
+    svg = plate(data=series([0] * 53))
+    assert "busiest week" not in svg and "0 contributions in the last year" in svg
+
+
+def test_on_mobile_the_row_of_numbers_stops_at_the_first_one_that_does_not_fit():
+    counters = {"stars": 12, "prs": 123456789012345678901234567890, "issues": 3}
+    shown = texts(plate(counters=counters, metrics=["stars", "prs", "issues"], mobile=True))
+    assert "12" in shown and "stars" in shown
+    assert "issues" not in shown and "pullrequests" not in shown       # the order of the config is kept
+
+
+def test_a_total_that_leaves_no_room_for_its_caption_is_shown_without_one():
+    svg = plate(data=series([5] * 53, total=10 ** 40), mobile=True)          # 332 of the 342 pixels
+    rules.text_stays_inside(svg)
+    assert not any(text.startswith("contrib") for text in texts(svg))
+    assert any(text.startswith("10,000,000,000") for text in texts(svg))
+    assert len([run for run in text_runs(svg) if run["y"] == 48]) == 1       # the total, and nothing beside it
+    wide = plate(data=series([5] * 53, total=10 ** 40))                     # on desktop there is room for both
+    rules.text_stays_inside(wide)
+    assert "contributionsinthelastyear" in texts(wide)
+
+
+def test_a_total_wider_than_the_plate_is_cut_inside_it():
+    for mobile in (False, True):
+        svg = plate(data=series([5] * 53, total=10 ** 90), mobile=mobile)
+        rules.text_stays_inside(svg)
+        assert any(text.startswith("1,000,000") and text.endswith("…") for text in texts(svg))
+        assert not any(text.startswith("contrib") for text in texts(svg))
+
+
+def test_a_calendar_of_one_week_puts_its_single_point_at_the_left_edge():
+    svg = plate(data=series([0, 0][:1]))
+    assert re.findall(r'<circle cx="([\d.]+)"', svg) == ["44"]
+
+
+@pytest.mark.parametrize("peak, levels", [(11, [5, 10]), (110, [50, 100]), (1100, [500, 1000]), (55, [25, 50]),
+                                          (550, [250, 500]), (44, [20, 40]), (440, [200, 400]), (4400, [2000, 4000])])
+def test_reference_levels_are_the_same_at_every_power_of_ten(peak, levels):
+    assert reference_levels(peak) == levels

@@ -22,6 +22,7 @@ LABELS = {"stars": ("star", "stars"), "prs": ("pull request", "pull requests"),
           "issues": ("issue", "issues"), "repos": ("repository", "repositories")}
 MAX_NUMBERS = 3
 PEAK_STAR = 6                     # the peak is drawn as bright as a repository with this many stargazers
+PEAK_REACH = 12                   # pixels around the peak's star that other text keeps off
 STAGGER = 0.022                   # seconds between one week rising and the next
 LEVEL_SIZE, PEAK_SIZE, MONTH_SIZE = 11.5, 12.5, 11.5
 
@@ -36,13 +37,20 @@ def moving_average(values, window: int = 5) -> list:
     return out
 
 
-def smooth_path(points) -> str:
-    """Path data for a Catmull-Rom spline through the points, as cubic Béziers."""
+def smooth_path(points, low: float = float("-inf"), high: float = float("inf")) -> str:
+    """Path data for a Catmull-Rom spline through the points, as cubic Béziers.
+
+    A spline overshoots where the points turn sharply. With low and high given,
+    the handles are kept between those two heights, and so is the whole curve.
+    """
+    def held(y: float) -> float:
+        return min(max(y, low), high)
+
     d = [f"M{num(points[0][0])} {num(points[0][1])}"]
     for i in range(len(points) - 1):
         p0, p1, p2, p3 = points[max(i - 1, 0)], points[i], points[i + 1], points[min(i + 2, len(points) - 1)]
-        d.append(f"C{num(p1[0] + (p2[0] - p0[0]) / 6)} {num(p1[1] + (p2[1] - p0[1]) / 6)} "
-                 f"{num(p2[0] - (p3[0] - p1[0]) / 6)} {num(p2[1] - (p3[1] - p1[1]) / 6)} "
+        d.append(f"C{num(p1[0] + (p2[0] - p0[0]) / 6)} {num(held(p1[1] + (p2[1] - p0[1]) / 6))} "
+                 f"{num(p2[0] - (p3[0] - p1[0]) / 6)} {num(held(p2[1] - (p3[1] - p1[1]) / 6))} "
                  f"{num(p2[0])} {num(p2[1])}")
     return "".join(d)
 
@@ -52,10 +60,10 @@ def reference_levels(peak: int) -> list:
     that stays under peak / 2.2, and its double. Whole numbers only; nothing for a peak under 4."""
     if peak < 4:
         return []
-    limit, best, scale = peak / 2.2, 1, 1
-    while scale <= limit:
+    best, scale = 1, 1
+    while scale * 22 <= peak * 10:
         for value in (scale, 2 * scale, 5 * scale // 2, 5 * scale):
-            if best < value <= limit:
+            if best < value and value * 22 <= peak * 10:          # value <= peak / 2.2, in whole numbers
                 best = value
         scale *= 10
     return [best, best * 2]
@@ -84,6 +92,42 @@ def _summary(series, numbers: list) -> str:
 
 def _peak_text(value: int, day) -> str:
     return f"{value:,} in the week of {MONTHS[day.month - 1]} {day.day}"
+
+
+def _top_of_chart(px: float, py: float, span: float, levels: list, x0: float, x1: float) -> tuple:
+    """Where the reference labels and the peak's name go so that neither lands on the other.
+
+    levels is [(value, baseline, width of its label)]; span is the width of the
+    peak's name (0 when there is no peak). Returns (the end of their lines the
+    reference labels sit at, (x, anchor) of the peak's name, the levels whose
+    label is written).
+
+    The labels sit at the left end and the name to the left of the star when
+    that is clear; otherwise the name goes to the right, or the labels move to
+    the right end. A reference label is only in the way if it is at the peak's
+    height. If no arrangement is clear, the label in the way is left out: its
+    line stays.
+    """
+    values = [value for value, _baseline, _width in levels]
+    if not span:
+        return "left", (x0, "start"), values
+    reach, gap = PEAK_REACH, 8
+    in_the_way = [(value, width) for value, baseline, width in levels
+                  if baseline - LEVEL_SIZE < py + reach and baseline + 3 > py - reach]
+    wide = max((width for _value, width in in_the_way), default=0)
+    left = (px - 16, "end") if px - 16 - span >= x0 else None        # the name left of the star
+    right = (px + 16, "start") if px + 16 + span <= x1 else None     # or right of it
+    if not in_the_way:
+        return "left", left or right or (x0, "start"), values
+    for side, name in (("left", left), ("left", right), ("right", right), ("right", left)):
+        if name is None:
+            continue
+        begin = min(px - reach, name[0] - span if name[1] == "end" else name[0])
+        end = max(px + reach, name[0] if name[1] == "end" else name[0] + span)
+        if (begin >= x0 + wide + gap) if side == "left" else (end <= x1 - wide - gap):
+            return side, name, values
+    kept = [value for value in values if value not in {v for v, _w in in_the_way}]
+    return "left", left or right or (x0, "start"), kept
 
 
 def _numbers_only(numbers: list, theme, mobile: bool, ts: Typesetter) -> tuple:
@@ -160,15 +204,14 @@ def render(series, counters: dict, metrics: list, theme, mobile: bool = False, m
             body.append(ts.line(x, 60, label, 13, theme.mute, "italic", anchor="end"))
             x -= column + 30
 
-    # reference levels and the baseline
+    # reference levels and the baseline; the labels and the peak's name are placed together, further down
     levels = reference_levels(most)
     for level in levels:
         body.append(f'<path d="M{x0} {num(at_y(level))}H{x1}" stroke="{theme.faint}" stroke-dasharray="1 5"/>')
-        body.append(ts.line(x0, at_y(level) - 5, f"{level:,} a week", LEVEL_SIZE, theme.mute))
     body.append(f'<path d="M{x0} {num(base + 0.5)}H{x1}" stroke="{theme.faint}"/>')
 
     # the curve: written once, used for the glow, the line and the travelling light
-    curve = smooth_path([(at_x(i), at_y(v)) for i, v in enumerate(moving_average(values))])
+    curve = smooth_path([(at_x(i), at_y(v)) for i, v in enumerate(moving_average(values))], top, base)
     defs = [star_defs(theme) if most else "", path_def("cv", curve),
             f'<linearGradient id="ws" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{theme.ink}" '
             f'stop-opacity=".2"/><stop offset="1" stop-color="{theme.ink}" stop-opacity="0"/></linearGradient>']
@@ -189,23 +232,18 @@ def render(series, counters: dict, metrics: list, theme, mobile: bool = False, m
     body.append(comet("cv", theme, mo, cycle=12, start=3.4))
 
     # the peak is a star, named beside it
+    peak_text = _peak_text(most, dates[peak]) if most else ""
+    side, (label_x, anchor), shown = _top_of_chart(
+        at_x(peak), at_y(most), measure(peak_text, PEAK_SIZE) if most else 0,
+        [(level, at_y(level) - 5, measure(f"{level:,} a week", LEVEL_SIZE)) for level in levels], x0, x1)
+    for level in shown:
+        body.append(ts.line(x0 if side == "left" else x1, at_y(level) - 5, f"{level:,} a week", LEVEL_SIZE, theme.mute,
+                            anchor="start" if side == "left" else "end"))
     if most:
         px, py = at_x(peak), at_y(most)
         body.append(f'<g transform="translate({num(px)} {num(py)})"><g{mo.cls("pop", delay=peak * STAGGER + 0.2)}>'
                     f'{star(PEAK_STAR, "now", theme, mo)}</g></g>')
-        text = _peak_text(most, dates[peak])
-        span = measure(text, PEAK_SIZE)
-        # clear of the reference labels at the left edge, which sit at about the same height
-        keep_off = x0 + max((measure(f"{level:,} a week", LEVEL_SIZE) for level in levels), default=0) + 8
-        if px - 16 - span >= keep_off:
-            x, anchor = px - 16, "end"
-        elif px + 16 + span <= x1:
-            x, anchor = px + 16, "start"
-        elif px - 16 - span >= x0:
-            x, anchor = px - 16, "end"
-        else:
-            x, anchor = x0, "start"
-        body.append(ts.line(x, py + 4, text, PEAK_SIZE, theme.ink, "regular", anchor,
+        body.append(ts.line(label_x, py + 4, peak_text, PEAK_SIZE, theme.ink, "regular", anchor,
                             mo.cls("soft", delay=peak * STAGGER + 0.5)))
 
     # month marks: three letters on desktop, the initial on mobile
