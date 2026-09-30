@@ -189,22 +189,49 @@ class Each(list):
 
 
 class Scripted:
-    """Stands in for InquirerPy: every prompt answers from a script keyed by the start of its message."""
+    """Stands in for InquirerPy: every prompt answers from a script keyed by the start of its message.
+
+    An unscripted prompt answers what pressing Enter would, and the stand-in is
+    as strict as the library: a text default has to be a string, a list prompt
+    starts with the choices marked as enabled (its `default` is not a list of
+    selections), a select's default has to be one of its choices.
+    """
 
     def __init__(self, answers):
         self.answers, self.asked = answers, []
 
-    def _prompt(self, message="", default=None, **_options):
+    def _answer(self, message, enter):
         self.asked.append(message)
         for start, answer in self.answers.items():
             if message.startswith(start):
-                value = answer.pop(0) if isinstance(answer, Each) else answer
+                enter = answer.pop(0) if isinstance(answer, Each) else answer
                 break
-        else:
-            value = default
-        return type("Prompt", (), {"execute": lambda _self: value})()
+        return type("Prompt", (), {"execute": lambda _self: enter})()
 
-    text = select = confirm = fuzzy = checkbox = _prompt
+    @staticmethod
+    def _values(choices):
+        return [(c["value"], c.get("enabled", False)) if isinstance(c, dict) else
+                (c.value, c.enabled) if hasattr(c, "value") else (c, False) for c in choices]
+
+    def text(self, message="", default="", **_options):
+        assert isinstance(default, str), f"text prompt {message!r} got a default that is not a string: {default!r}"
+        return self._answer(message, default)
+
+    def confirm(self, message="", default=False, **_options):
+        assert isinstance(default, bool), f"confirm prompt {message!r} got default {default!r}"
+        return self._answer(message, default)
+
+    def select(self, message="", choices=(), default=None, **_options):
+        values = [value for value, _enabled in self._values(choices)]
+        assert default is None or default in values, f"select prompt {message!r}: {default!r} is not a choice"
+        return self._answer(message, default if default in values else values[0])
+
+    def fuzzy(self, message="", choices=(), default="", **_options):
+        assert isinstance(default, str), f"fuzzy prompt {message!r}: default is the search text, not a selection"
+        return self._answer(message, [value for value, enabled in self._values(choices) if enabled])
+
+    def checkbox(self, message="", choices=(), **_options):
+        return self._answer(message, [value for value, enabled in self._values(choices) if enabled])
 
 
 class TestTheWholeWizard:
@@ -257,3 +284,121 @@ class TestTheWholeWizard:
         assert config["projects"] == [{"repo": "ada/engine", "description": "One"},
                                       {"repo": "ada/notes", "arm": 1, "description": "Two"}]
         validate_config(config)
+
+    # ── editing keeps what the user had ──────────────────────────────────────
+
+    EDIT = {"config.yml already exists": "edit", "Configure advanced": False, "Generate SVGs now": False}
+
+    def test_editing_without_the_advanced_options_loses_nothing(self, monkeypatch, tmp_path, sample_config):
+        existing = copy.deepcopy(sample_config)
+        config, _asked = self.run(monkeypatch, tmp_path, dict(self.EDIT), existing)
+        for section in ("social", "projects", "stats", "languages"):
+            assert config[section] == existing[section], section
+        assert config["profile"] == existing["profile"]
+        assert [arm["items"] for arm in config["galaxy_arms"]] == [arm["items"] for arm in existing["galaxy_arms"]]
+        validate_config(config)
+
+    def test_editing_keeps_items_that_are_not_in_the_catalogue(self, monkeypatch, tmp_path, sample_config):
+        existing = copy.deepcopy(sample_config)
+        existing["galaxy_arms"][0]["items"] = ["TypeScript", "AWS / Oracle", "My Own Framework"]
+        config, _asked = self.run(monkeypatch, tmp_path, dict(self.EDIT), existing)
+        assert config["galaxy_arms"][0]["items"] == ["TypeScript", "AWS / Oracle", "My Own Framework"]
+
+    def test_a_fourth_focus_area_and_the_projects_pinned_to_it_survive_an_edit(self, monkeypatch, tmp_path, sample_config):
+        existing = copy.deepcopy(sample_config)
+        existing["galaxy_arms"].append({"name": "Hardware", "items": ["Verilog"], "repos": ["fpga-toys"]})
+        existing["projects"].append({"repo": "galaxy-dev/fpga-toys", "arm": 3, "description": "Blinking lights."})
+        config, _asked = self.run(monkeypatch, tmp_path, dict(self.EDIT), existing)
+        assert config["galaxy_arms"][3] == {"name": "Hardware", "items": ["Verilog"], "repos": ["fpga-toys"]}
+        assert config["projects"][2]["arm"] == 3
+        validate_config(config)
+
+    def test_the_arm_of_a_project_can_be_any_of_the_arms_being_written(self, monkeypatch, tmp_path, sample_config):
+        existing = copy.deepcopy(sample_config)
+        existing["galaxy_arms"].append({"name": "Hardware", "items": ["Verilog"]})
+        existing["projects"] = [{"repo": "galaxy-dev/fpga-toys", "arm": 3, "description": "Blinking lights."}]
+        answers = dict(self.EDIT, **{"Configure advanced": True, "Add another project": False})
+        config, _asked = self.run(monkeypatch, tmp_path, answers, existing)
+        assert config["projects"] == [{"repo": "galaxy-dev/fpga-toys", "arm": 3, "description": "Blinking lights."}]
+        validate_config(config)
+
+    def test_editing_with_the_advanced_options_starts_from_what_was_there(self, monkeypatch, tmp_path, sample_config):
+        existing = copy.deepcopy(sample_config)
+        existing["stats"] = {"metrics": ["stars", "repos"]}
+        existing["languages"] = {"exclude": ["HTML"], "max_display": 5}
+        answers = dict(self.EDIT, **{"Configure advanced": True, "Add another project": Each([True, False])})
+        config, _asked = self.run(monkeypatch, tmp_path, answers, existing)
+        assert config["stats"] == {"metrics": ["stars", "repos"]}
+        assert config["languages"] == {"exclude": ["HTML"], "max_display": 5}
+        assert config["projects"] == [
+            {"repo": "galaxy-dev/nebula-ui", "arm": 0, "description": "A component library."},
+            {"repo": "galaxy-dev/stargate-api", "arm": 1, "description": "High-performance API gateway."}]
+        assert config["social"] == existing["social"] and config["profile"] == existing["profile"]
+
+    def test_an_answer_left_empty_in_the_advanced_options_removes_what_was_there(self, monkeypatch, tmp_path, sample_config):
+        answers = dict(self.EDIT, **{"Configure advanced": True, "Company": "", "Email": "", "LinkedIn": "", "Website": "",
+                                     "Add a featured project": False})
+        config, _asked = self.run(monkeypatch, tmp_path, answers, copy.deepcopy(sample_config))
+        assert "company" not in config["profile"] and "social" not in config and "projects" not in config
+        assert config["profile"]["location"] == "San Francisco, CA"
+        validate_config(config)
+
+    def test_the_look_already_chosen_is_offered_again(self, monkeypatch, tmp_path, sample_config):
+        existing = dict(copy.deepcopy(sample_config), motion=False)
+        existing["theme"] = {"dark": "cyanotype", "light": "cyanotype"}
+        config, _asked = self.run(monkeypatch, tmp_path, dict(self.EDIT), existing)
+        assert config["theme"] == {"dark": "cyanotype", "light": "cyanotype"} and config["motion"] is False
+
+    @pytest.mark.parametrize("typed, written", [("12", 12), ("0", 8), ("²", 8), ("-3", 8), ("many", 8), ("99", 20), (" 7 ", 7)])
+    def test_the_number_of_languages_is_a_whole_number_in_range_whatever_is_typed(self, monkeypatch, tmp_path, typed, written):
+        answers = dict(self.BASE, **{"Configure advanced": True, "Add a featured project": False, "Max languages": typed})
+        config, _asked = self.run(monkeypatch, tmp_path, answers)
+        assert config["languages"]["max_display"] == written
+        validate_config(config)
+
+    @pytest.mark.parametrize("odd", [
+        {"profile": None}, {"profile": {"name": 2024, "tagline": None}}, {"galaxy_arms": None},
+        {"galaxy_arms": ["Frontend", {"name": None, "items": None}]}, {"stats": None, "languages": None},
+        {"theme": "blue"}, {"theme": {"dark": "neon"}}, {"projects": [None, {"repo": None, "arm": True}]},
+        {"social": ["a", "list"]}, {"languages": {"exclude": "HTML", "max_display": "8"}},
+    ])
+    def test_an_existing_config_with_odd_values_is_editable_and_comes_out_valid(self, monkeypatch, tmp_path, sample_config, odd):
+        existing = dict(copy.deepcopy(sample_config), **odd)
+        answers = dict(self.BASE, **{"config.yml already exists": "edit", "Configure advanced": True,
+                                     "Add a featured project": False})
+        config, _asked = self.run(monkeypatch, tmp_path, answers, existing)
+        validate_config(config)
+
+    def test_a_config_that_cannot_be_read_is_not_replaced_without_asking(self, monkeypatch, tmp_path):
+        from generator import cli_init
+        path = tmp_path / "config.yml"
+        path.write_text("username: [unclosed", encoding="utf-8")
+        script = Scripted({"config.yml exists but could not be read": False})
+        monkeypatch.setattr(cli_init, "inquirer", script)
+        monkeypatch.setattr(cli_init, "_CONFIG_PATH", str(path))
+        cli_init.run_init()
+        assert path.read_text(encoding="utf-8") == "username: [unclosed"
+        assert len(script.asked) == 1
+
+    def test_a_config_that_cannot_be_read_is_replaced_when_the_user_says_so(self, monkeypatch, tmp_path):
+        answers = dict(self.BASE, **{"config.yml exists but could not be read": True})
+        from generator import cli_init
+        path = tmp_path / "config.yml"
+        path.write_text("username: [unclosed", encoding="utf-8")
+        script = Scripted(answers)
+        monkeypatch.setattr(cli_init, "inquirer", script)
+        monkeypatch.setattr(cli_init, "_CONFIG_PATH", str(path))
+        cli_init.run_init()
+        assert validate_config(yaml.safe_load(path.read_text(encoding="utf-8")))["username"] == "ada"
+
+
+def test_the_prompts_are_built_the_way_the_library_needs_them():
+    """With the real library: what an edit offers is really preselected, and every text default is a string."""
+    from InquirerPy import inquirer
+    from generator import cli_init
+    choices = cli_init._tech_choices(["Python", "Go"], ["Go", "AWS / Oracle", None, " "])
+    prompt = inquirer.fuzzy(message="x", choices=choices, multiselect=True)
+    assert [choice["value"] for choice in prompt.content_control.choices if choice["enabled"]] == ["Go", "AWS / Oracle"]
+    assert [choice["value"] for choice in prompt.content_control.choices] == ["Go", "AWS / Oracle", "Python"]
+    for value in (None, 2024, "text"):
+        inquirer.text(message="x", default=cli_init._text(value))
