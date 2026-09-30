@@ -51,11 +51,9 @@ class TestValidateConfig:
         with pytest.raises(ConfigError, match="valid hex color"):
             validate_config(cfg)
 
-    def test_theme_override_merges_with_defaults(self, cfg):
+    def test_a_changed_colour_is_an_override_and_nothing_else_is(self, cfg):
         cfg["theme"] = {"void": "#112233"}
-        result = validate_config(cfg)
-        assert result["theme"]["void"] == "#112233"
-        assert result["theme"]["synapse_cyan"] == "#00d4ff"  # default preserved
+        assert validate_config(cfg)["themes"]["overrides"] == {"void": "#112233"}
 
     def test_defaults_applied_for_optional_fields(self, cfg):
         del cfg["stats"]
@@ -64,7 +62,7 @@ class TestValidateConfig:
         result = validate_config(cfg)
         assert "metrics" in result["stats"]
         assert "exclude" in result["languages"]
-        assert "void" in result["theme"]
+        assert result["themes"]["overrides"] == {}
 
     def test_config_not_dict_fails(self):
         with pytest.raises(ConfigError, match="dict"):
@@ -99,11 +97,12 @@ class TestAtlasKeys:
         result = validate_config(cfg)
         assert result["themes"]["overrides"] == {"void": "#000000", "synapse_cyan": "#00ffff"}
 
-    def test_old_generator_still_gets_its_nine_colours(self, cfg):
+    def test_the_nine_colours_of_the_old_generator_are_no_longer_made_up(self, cfg):
         cfg["theme"] = {"dark": "cyanotype", "void": "#112233"}
         result = validate_config(cfg)
-        assert result["theme"]["void"] == "#112233"
-        assert "dark" not in result["theme"]
+        assert result["theme"] == {"dark": "cyanotype", "void": "#112233"}      # what the user wrote, as written
+        del cfg["theme"]
+        assert "theme" not in validate_config(cfg)
 
     def test_motion_can_be_switched_off(self, cfg):
         cfg["motion"] = False

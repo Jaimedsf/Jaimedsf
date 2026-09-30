@@ -11,9 +11,8 @@ import yaml
 from InquirerPy import inquirer
 from InquirerPy.validator import EmptyInputValidator
 
-from generator.config import ConfigError, validate_config
+from generator.config import HEX_COLOR_RE, LEGACY_THEME, ConfigError, validate_config
 from generator.tech_catalog import get_all_techs
-from generator.utils import DEFAULT_THEME, HEX_COLOR_RE
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config.yml")
 
 ARM_COLORS = [
@@ -293,7 +292,7 @@ def _prompt_projects(defaults: dict) -> list:
 def _prompt_theme(theme_defaults: dict) -> dict:
     """Collect custom theme hex colors."""
     theme = {}
-    for key, default_value in DEFAULT_THEME.items():
+    for key, default_value in LEGACY_THEME.items():
         current = theme_defaults.get(key, default_value)
         value = inquirer.text(
             message=f"Theme {key} (hex):",

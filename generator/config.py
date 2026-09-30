@@ -1,11 +1,27 @@
 """Config validation and defaults for the Galaxy Profile generator."""
 
 import logging
+import re
 
 from generator.themes import PALETTES
-from generator.utils import DEFAULT_THEME, resolve_theme, HEX_COLOR_RE
 
 logger = logging.getLogger(__name__)
+
+HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+# The nine colours version 1 read from `theme`, with its defaults. A config copied from the old
+# example carries all nine unchanged, so a colour equal to its default here is not an override.
+LEGACY_THEME = {
+    "void": "#080c14",
+    "nebula": "#0f1623",
+    "star_dust": "#1a2332",
+    "synapse_cyan": "#00d4ff",
+    "dendrite_violet": "#a78bfa",
+    "axon_amber": "#ffb020",
+    "text_bright": "#f1f5f9",
+    "text_dim": "#94a3b8",
+    "text_faint": "#64748b",
+}
 
 # theme colours that painted card backgrounds and borders; the Atlas plates have neither
 RETIRED_COLOURS = ("nebula", "star_dust")
@@ -119,7 +135,7 @@ def validate_config(config: dict) -> dict:
             raise ConfigError(
                 f"theme.{key} must be a valid hex color (e.g. #00d4ff), got '{value}'."
             )
-        elif value.lower() == DEFAULT_THEME.get(key, "").lower():
+        elif value.lower() == LEGACY_THEME.get(key, "").lower():
             # the old default, usually copied from the example config: not a customisation
             continue
         elif key in RETIRED_COLOURS:
@@ -138,9 +154,6 @@ def validate_config(config: dict) -> dict:
     if not isinstance(motion, bool):
         raise ConfigError(f"'motion' must be true or false, got '{motion}'.")
     config["motion"] = motion
-
-    # Apply theme defaults (the nine colours the pre-Atlas templates read)
-    config["theme"] = resolve_theme({k: v for k, v in user_theme.items() if k not in PALETTE_KEYS})
 
     # Apply other defaults
     config["profile"].setdefault("tagline", "")
