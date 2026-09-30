@@ -29,56 +29,64 @@ social:
   linkedin: "nyxorion"
   website: "https://nyxorion.dev"
 
-# Galaxy arms represent your core focus areas
-# Each arm spirals out from the center with its own color and tech items
-# Available colors: "synapse_cyan", "dendrite_violet", "axon_amber"
+# Galaxy arms are your focus areas.
+# A focus area becomes an arm of the galaxy when at least one of your public
+# repositories belongs to it, and the arm grows with the number of repositories.
+# A repository belongs to the area whose `items` make up the largest share of
+# its code (15% or more). Items that are not languages (React, AWS...) are
+# still listed in the tech-stack image.
 galaxy_arms:
   - name: "Frontend"
-    color: "dendrite_violet"
     items:
       - "TypeScript"
       - "React"
       - "CSS"
+    # repos:                   # optional: put these repositories on this arm,
+    #   - "nebula-ui"          # whatever their languages say
   - name: "Backend"
-    color: "synapse_cyan"
     items:
       - "Python"
       - "Node.js"
       - "PostgreSQL"
   - name: "DevOps"
-    color: "axon_amber"
     items:
       - "Docker"
       - "GitHub Actions"
       - "AWS"
 
-# Featured projects shown as constellation stars
+# Featured projects, shown in their own image and named in the galaxy.
 # Each project needs:
-#   repo: "owner/repo-name"   — GitHub repository path
-#   arm: 0-2                  — Which galaxy arm to associate with (index)
-#   description: "..."        — Short description shown on the card
+#   repo: "owner/repo-name"   — GitHub repository path (another owner's is fine)
+#   description: "..."        — Short description; defaults to the repository's own
+# and may have:
+#   arm: 0                    — Pin it to a galaxy arm by index (0 is the first)
 projects:
   - repo: "galaxy-dev/nebula-ui"
-    arm: 0
     description: "A component library with cosmic design tokens and dark-first theming."
   - repo: "galaxy-dev/stargate-api"
-    arm: 1
     description: "High-performance API gateway with built-in observability and caching."
 
-# Theme color overrides (optional — defaults to deep space palette)
-# All values must be valid hex color codes (#RRGGBB)
+# Theme: one palette for GitHub's dark theme and one for its light theme.
+#   deep-sky   — a night sky, with stars in their real colours
+#   cyanotype  — Prussian blue and paper white, with one warm accent
 theme:
-  void: "#080c14"              # Darkest background
-  nebula: "#0f1623"            # Card backgrounds
-  star_dust: "#1a2332"         # Borders, dividers
-  synapse_cyan: "#00d4ff"      # Primary accent (arm color 1)
-  dendrite_violet: "#a78bfa"   # Secondary accent (arm color 2)
-  axon_amber: "#ffb020"        # Tertiary accent (arm color 3)
-  text_bright: "#f1f5f9"       # Primary text
-  text_dim: "#94a3b8"          # Secondary text
-  text_faint: "#64748b"        # Muted text, labels
+  dark: "deep-sky"
+  light: "deep-sky"
+  # Fine tuning of the dark palette (optional, hex colours):
+  # void: "#080c14"            # Background
+  # text_bright: "#f1f5f9"     # Primary text
+  # text_dim: "#94a3b8"        # Secondary text
+  # text_faint: "#64748b"      # Hairlines
+  # synapse_cyan: "#00d4ff"    # Active stars and cool dust
+  # dendrite_violet: "#a78bfa" # Neutral dust
+  # axon_amber: "#ffb020"      # Dormant stars and warm dust
 
-# Stats configuration — which metrics to show on the telemetry card
+# Motion: set to false for still images.
+# Visitors whose system asks for reduced motion always get still images.
+motion: true
+
+# Stats configuration — which counters to show beside the contribution chart
+# (the chart's own title is the number of contributions; up to three of the rest are shown)
 stats:
   metrics:
     - "commits"
@@ -89,7 +97,7 @@ stats:
 
 # Language display settings
 languages:
-  exclude:                     # Languages to hide from the telemetry chart
+  exclude:                     # Languages to hide from the languages image
     - "HTML"
     - "CSS"
     - "Shell"
