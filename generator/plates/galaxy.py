@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import math
 
-from generator.svg import dots, dots_d, num
+from generator.svg import dots, dots_d, num, spike_half
+from generator.typeset import font, measure, wrap
 
 PHI = math.pi / 3                 # tile step along an arm
 R0 = 20.0                         # radius where the spiral starts
@@ -205,3 +206,86 @@ def place_stars(model, geo: Geometry, rng) -> dict:
                 break
         positions[repo.name] = spot
     return positions
+
+
+# ── labels and arm names ─────────────────────────────────────────────────────
+
+LABEL_MAX_WIDTH = 170             # a longer repository name is cut with an ellipsis
+LABEL_STYLE = "medium"
+ARM_NAME_AT = 0.82                # where along an arm (fraction of its cut) its name is centred
+
+
+def label_size(geo: Geometry) -> float:
+    return 12.5 if geo.width < 500 else 13.5
+
+
+def label_text(name: str, geo: Geometry) -> str:
+    return wrap(name, label_size(geo), LABEL_STYLE, LABEL_MAX_WIDTH, max_lines=1)[0]
+
+
+def place_labels(names: list, positions: dict, stars: dict, geo: Geometry) -> dict:
+    """{name: (x, baseline, anchor, box)} for the stars that get their name written.
+
+    Each label tries the right and the left of its star, level with it and a
+    line above or below, and takes the spot that covers the fewest other stars
+    and labels. Brighter stars choose first. box is (left, top, width, height)
+    of the backdrop behind the text.
+    """
+    size = label_size(geo)
+    atlas = font(LABEL_STYLE)
+    ascent = size * atlas["ascent"] / atlas["upm"]
+    box_height = size * (atlas["ascent"] + atlas["descent"]) / atlas["upm"] - 2
+    placed, boxes = {}, []
+    for name in sorted(names, key=lambda n: (-stars.get(n, 0), n)):
+        x, y = positions[name]
+        width = measure(label_text(name, geo), size, LABEL_STYLE)
+        reach = spike_half(stars.get(name, 0)) + 5
+        best = None
+        for right in (True, False):
+            for dy in (0, -15, 15):
+                baseline = y + 4.5 + dy
+                text_x = x + reach if right else x - reach
+                left = text_x - 4 if right else text_x - width - 4
+                box = (left, baseline - ascent + 1, width + 8, box_height)
+                off_frame = (box[0] < 2 or box[1] < 2 or box[0] + box[2] > geo.width - 2
+                             or box[1] + box[3] > geo.height - 2)
+                covered = sum(1 for other, (ox, oy) in positions.items()
+                              if other != name and box[0] - 6 < ox < box[0] + box[2] + 6
+                              and box[1] - 6 < oy < box[1] + box[3] + 6)
+                crowded = sum(1 for b in boxes if box[0] < b[0] + b[2] + 4 and b[0] < box[0] + box[2] + 4
+                              and box[1] < b[1] + b[3] + 4 and b[1] < box[1] + box[3] + 4)
+                score = off_frame * 1000 + crowded * 20 + covered * 10 + abs(dy) / 15 + (0 if right else 0.5)
+                if best is None or score < best[0]:
+                    best = (score, text_x, baseline, "start" if right else "end", box)
+        _score, text_x, baseline, anchor, box = best
+        # a star in a corner may have no spot inside the frame: push the label back in
+        dx = min(max(box[0], 2), max(geo.width - 2 - box[2], 2)) - box[0]
+        dy = min(max(box[1], 2), max(geo.height - 2 - box[3], 2)) - box[1]
+        box = (box[0] + dx, box[1] + dy, box[2], box[3])
+        boxes.append(box)
+        placed[name] = (text_x + dx, baseline + dy, anchor, box)
+    return placed
+
+
+def arm_name_paths(model, geo: Geometry) -> list:
+    """[(arm name, points)]: a short stretch of curve just outside each named arm, to set its name along.
+
+    The points always run left to right so the name is never upside down. In
+    the upper half the curve hugs the arm from outside; in the lower half it
+    stands further out, because there the letters rise towards the arm.
+    """
+    size = label_size(geo)
+    per_radius = math.sqrt(1 + geo.b ** 2) / geo.b          # arc length travelled per unit of radius
+    paths = []
+    for index, (arm, cut) in enumerate(zip(model.arms, arm_cuts(model, geo))):
+        if not arm.name:
+            continue
+        centre = cut * ARM_NAME_AT
+        stretch = 1.09 if geo.point(index, centre)[1] < geo.cy else 1.17
+        half = (measure(arm.name, size, "italic") / 2 + 14) / (per_radius * stretch)
+        lo, hi = max(centre - half, R0 * 1.5), centre + half
+        points = [geo.point(index, lo + (hi - lo) * q / 24, stretch) for q in range(25)]
+        if points[-1][0] < points[0][0]:
+            points.reverse()
+        paths.append((arm.name, points))
+    return paths

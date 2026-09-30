@@ -243,3 +243,93 @@ def test_same_seed_same_sky():
     model = demo_model()
     geo = Geometry(False, len(model.arms))
     assert place_stars(model, geo, random.Random("s")) == place_stars(model, geo, random.Random("s"))
+
+
+# ── labels and arm names ─────────────────────────────────────────────────────
+
+from generator.plates.galaxy import arm_name_paths, place_labels
+from generator.typeset import measure
+
+
+def overlap(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+
+def labels_for(positions, stars, names=None, mobile=False):
+    geo = Geometry(mobile, 2)
+    return geo, place_labels(names or list(positions), positions, stars, geo)
+
+
+def test_label_goes_to_the_right_of_its_star_when_nothing_is_in_the_way():
+    _geo, placed = labels_for({"engine": (500, 200)}, {"engine": 10})
+    x, baseline, anchor, _box = placed["engine"]
+    assert anchor == "start" and x > 500 and baseline == pytest.approx(204.5)
+
+
+def test_label_near_the_right_edge_goes_to_the_left():
+    geo, placed = labels_for({"galaxy-profile": (830, 200)}, {"galaxy-profile": 480})
+    x, _baseline, anchor, box = placed["galaxy-profile"]
+    assert anchor == "end" and x < 830
+    assert box[0] >= 0 and box[0] + box[2] <= geo.width
+
+
+def test_label_avoids_a_neighbouring_star():
+    _geo, placed = labels_for({"alpha-centauri": (500, 200), "b": (540, 201)}, {"alpha-centauri": 5, "b": 1},
+                              names=["alpha-centauri"])
+    _x, baseline, anchor, box = placed["alpha-centauri"]
+    assert not (box[0] <= 540 <= box[0] + box[2] and box[1] <= 201 <= box[1] + box[3])
+    assert anchor == "end" or baseline != pytest.approx(204.5)
+
+
+def test_labels_do_not_overlap_each_other():
+    positions = {"alpha": (500, 200), "beta": (506, 212), "gamma": (498, 188), "delta": (510, 204)}
+    _geo, placed = labels_for(positions, {name: 3 for name in positions})
+    boxes = [box for _x, _y, _a, box in placed.values()]
+    assert not any(overlap(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1:])
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_every_label_box_stays_inside_the_frame(mobile):
+    model = demo_model()
+    geo = Geometry(mobile, len(model.arms))
+    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    stars = {r.name: r.stars for arm in model.arms for r in arm.repos}
+    stars.update({r.name: r.stars for r in model.loose})
+    placed = place_labels(sorted(model.labels), positions, stars, geo)
+    assert set(placed) == set(model.labels)
+    for _x, _y, _anchor, (left, top, width, height) in placed.values():
+        assert left >= 0 and top >= 0 and left + width <= geo.width and top + height <= geo.height
+
+
+def test_a_label_in_a_corner_is_pushed_back_into_the_frame():
+    geo, placed = labels_for({"corner-case": (845, 6)}, {"corner-case": 2})
+    left, top, width, height = placed["corner-case"][3]
+    assert left >= 0 and top >= 0 and left + width <= geo.width and top + height <= geo.height
+
+
+def test_an_endless_repository_name_is_cut_in_the_label():
+    _geo, placed = labels_for({"x" * 90: (500, 200)}, {"x" * 90: 2})
+    box = placed["x" * 90][3]
+    assert box[2] <= galaxy.LABEL_MAX_WIDTH + 12
+
+
+def test_each_named_arm_gets_a_path_for_its_name_and_unnamed_arms_get_none():
+    model = demo_model()
+    geo = Geometry(False, len(model.arms))
+    paths = arm_name_paths(model, geo)
+    assert [name for name, _points in paths] == ["Frontend", "Backend", "DevOps"]
+    unnamed = GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
+    assert arm_name_paths(unnamed, Geometry(False, 2)) == []
+
+
+def test_arm_name_paths_read_left_to_right_run_just_outside_the_arm_and_are_long_enough():
+    model = demo_model()
+    geo = Geometry(False, len(model.arms))
+    cuts = arm_cuts(model, geo)
+    for (name, points), cut in zip(arm_name_paths(model, geo), cuts):
+        assert points[0][0] < points[-1][0]
+        middle = points[len(points) // 2]
+        assert cut * 0.6 < distance(middle, (geo.cx, geo.cy)) < cut * 1.25
+        length = sum(distance(a, b) for a, b in zip(points, points[1:]))
+        assert length >= measure(name, 13.5, "italic") + 16
+        assert all(0 <= x <= geo.width and 0 <= y <= geo.height for x, y in points)
