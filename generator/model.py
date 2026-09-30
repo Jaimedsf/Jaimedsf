@@ -31,8 +31,14 @@ def _tech(name: str) -> str:
     return ALIASES.get(key, key)
 
 
-def _featured_keys(config: dict) -> set:
-    return {repo_key(p["repo"]) for p in config.get("projects", [])}
+def _full(name, login: str) -> str:
+    """The key of the repository a config entry names; an entry without an owner is the user's own."""
+    owner, _, repo = str(name).rpartition("/")
+    return f"{owner or login}/{repo}".lower()
+
+
+def _featured_keys(config: dict, login: str) -> set:
+    return {_full(p["repo"], login) for p in config.get("projects", [])}
 
 
 def visible_repos(snap: Snapshot, config: dict, limit: int = STAR_LIMIT) -> list:
@@ -42,11 +48,11 @@ def visible_repos(snap: Snapshot, config: dict, limit: int = STAR_LIMIT) -> list
     repository: the workflow that regenerates these images keeps it "active".
     """
     login = snap.login.lower()
-    wanted = _featured_keys(config)
+    wanted = _featured_keys(config, login)
     repos = [r for r in snap.repos
-             if (not r.is_fork or repo_key(r.name) in wanted)
+             if (not r.is_fork or r.key in wanted)
              and not (r.owner.lower() == login and r.name.lower() == login)]
-    repos.sort(key=lambda r: (repo_key(r.name) not in wanted, -r.stars, -r.pushed.toordinal(), r.name.lower()))
+    repos.sort(key=lambda r: (r.key not in wanted, -r.stars, -r.pushed.toordinal(), r.key))
     return repos[:limit]
 
 
@@ -63,18 +69,29 @@ def _share_arm(repo: Repo, arm_techs: list) -> Optional[int]:
     return scores.index(best) if best >= MIN_SHARE else None
 
 
-def assign_arms(repos: list, arms: list, projects: list) -> dict:
-    """Arm index (or None) for every repository: explicit pins first, then share of code."""
+def assign_arms(repos: list, arms: list, projects: list, login: str = "") -> dict:
+    """{repository key: arm index or None}: explicit pins first, then share of code.
+
+    A pin names a repository as "owner/name" or by its name alone. A name
+    alone is the user's own repository, or, if they have none by that name,
+    the only other one that has it.
+    """
+    def meant(entry) -> str:
+        full = _full(entry, login)
+        if "/" in str(entry):
+            return full
+        same_name = [repo.key for repo in repos if repo.name.lower() == repo_key(entry)]
+        return same_name[0] if len(same_name) == 1 else full
+
     pinned = {}
     for project in projects:
         if "arm" in project:
-            pinned[repo_key(project["repo"])] = project["arm"]
+            pinned[meant(project["repo"])] = project["arm"]
     for index, arm in enumerate(arms):
         for name in arm.get("repos", []):
-            pinned[repo_key(name)] = index
+            pinned[meant(name)] = index
     arm_techs = [{_tech(item) for item in arm.get("items", [])} for arm in arms]
-    return {repo.name: pinned[repo_key(repo.name)] if repo_key(repo.name) in pinned else _share_arm(repo, arm_techs)
-            for repo in repos}
+    return {repo.key: pinned[repo.key] if repo.key in pinned else _share_arm(repo, arm_techs) for repo in repos}
 
 
 @dataclass(frozen=True)
@@ -144,8 +161,8 @@ class Arm:
 class GalaxyModel:
     arms: tuple               # Arm, in config order; only focus areas that have repositories
     loose: tuple              # Repo on no arm
-    labels: frozenset         # names of the repositories that get a label
-    order: tuple              # every drawn repository's name, oldest first (the entrance order)
+    labels: frozenset         # keys (Repo.key) of the repositories that get a label
+    order: tuple              # every drawn repository's key, oldest first (the entrance order)
     today: Optional[date] = None   # the day a star's state is judged against
 
 
@@ -153,28 +170,28 @@ def galaxy(snap: Snapshot, config: dict) -> GalaxyModel:
     """What the galaxy is made of: which arms exist, which star sits on which, and who is named."""
     repos = visible_repos(snap, config)
     arms_config = config.get("galaxy_arms", [])
-    assigned = assign_arms(repos, arms_config, config.get("projects", []))
+    assigned = assign_arms(repos, arms_config, config.get("projects", []), snap.login)
 
     def oldest_first(items):
-        return tuple(sorted(items, key=lambda r: (r.created, r.name.lower())))
+        return tuple(sorted(items, key=lambda r: (r.created, r.key)))
 
     arms = tuple(
-        Arm(arm["name"], oldest_first(r for r in repos if assigned[r.name] == index))
+        Arm(arm["name"], oldest_first(r for r in repos if assigned[r.key] == index))
         for index, arm in enumerate(arms_config)
-        if any(assigned[r.name] == index for r in repos)
+        if any(assigned[r.key] == index for r in repos)
     )
-    on_arm = {r.name for arm in arms for r in arm.repos}
-    wanted = _featured_keys(config)
-    named = [r.name for r in repos if repo_key(r.name) in wanted]
+    on_arm = {r.key for arm in arms for r in arm.repos}
+    wanted = _featured_keys(config, snap.login)
+    named = [r.key for r in repos if r.key in wanted]
     if repos:
-        brightest = max(repos, key=lambda r: (r.stars, r.pushed)).name
+        brightest = max(repos, key=lambda r: (r.stars, r.pushed)).key
         if brightest not in named:
             named.append(brightest)
     return GalaxyModel(
         arms=arms or (Arm(None, ()), Arm(None, ())),
-        loose=oldest_first(r for r in repos if r.name not in on_arm),
+        loose=oldest_first(r for r in repos if r.key not in on_arm),
         labels=frozenset(named[:LABEL_LIMIT]),
-        order=tuple(r.name for r in oldest_first(repos)),
+        order=tuple(r.key for r in oldest_first(repos)),
         today=snap.today,
     )
 

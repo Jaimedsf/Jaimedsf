@@ -44,64 +44,64 @@ def thirteen():
 
 def test_share_rule_on_thirteen_real_repositories_leaves_three_loose():
     arms = assign_arms(thirteen(), ARMS, [])
-    loose = sorted(name for name, arm in arms.items() if arm is None)
-    assert loose == ["cosmos-universe-ai", "cses", "macweep"]
+    loose = sorted(key for key, arm in arms.items() if arm is None)
+    assert loose == ["vinimlo/cosmos-universe-ai", "vinimlo/cses", "vinimlo/macweep"]
     assert len(arms) == 13
 
 
 def test_share_rule_places_mixed_repositories_by_their_largest_matching_share():
     arms = assign_arms(thirteen(), ARMS, [])
-    assert arms["dashboard-smar-pd3"] == 0       # Vue 48%, but Python 38% is the arm language
-    assert arms["cosmos"] == 1                   # Astro 46%, TypeScript 36%
-    assert arms["galaxy-profile"] == 0 and arms["tabAla"] == 1
+    assert arms["vinimlo/dashboard-smar-pd3"] == 0       # Vue 48%, but Python 38% is the arm language
+    assert arms["vinimlo/cosmos"] == 1                   # Astro 46%, TypeScript 36%
+    assert arms["vinimlo/galaxy-profile"] == 0 and arms["vinimlo/tabala"] == 1
 
 
 def test_share_of_exactly_the_threshold_is_enough():
     repo = make("edge", languages={"Python": 15, "Haskell": 85}, primary="Haskell")
-    assert assign_arms([repo], ARMS, [])["edge"] == 0
+    assert assign_arms([repo], ARMS, [])["ada/edge"] == 0
 
 
 def test_share_just_below_the_threshold_stays_loose():
     repo = make("edge", languages={"Python": 149, "Haskell": 851}, primary="Haskell")
-    assert assign_arms([repo], ARMS, [])["edge"] is None
+    assert assign_arms([repo], ARMS, [])["ada/edge"] is None
 
 
 def test_tie_goes_to_the_first_arm():
     repo = make("both", languages={"Python": 50, "TypeScript": 50})
-    assert assign_arms([repo], ARMS, [])["both"] == 0
+    assert assign_arms([repo], ARMS, [])["ada/both"] == 0
 
 
 def test_tool_names_match_their_language_through_the_alias_table():
     repo = make("deploy", languages={"Dockerfile": 30, "HCL": 70}, primary="HCL")
-    assert assign_arms([repo], ARMS, [])["deploy"] == 2
+    assert assign_arms([repo], ARMS, [])["ada/deploy"] == 2
 
 
 def test_project_arm_wins_over_the_share_rule():
     repos = thirteen()
     arms = assign_arms(repos, ARMS, [{"repo": "vinimlo/macweep", "arm": 2}])
-    assert arms["macweep"] == 2
+    assert arms["vinimlo/macweep"] == 2
 
 
 def test_a_project_without_an_arm_does_not_pin_anything():
     repo = make("site", languages={"TypeScript": 100})
-    assert assign_arms([repo], ARMS, [{"repo": "ada/site"}])["site"] == 1
+    assert assign_arms([repo], ARMS, [{"repo": "ada/site"}])["ada/site"] == 1
 
 
 def test_arm_repos_list_pins_a_repository_and_beats_the_project_arm():
     arms_cfg = [dict(a) for a in ARMS]
     arms_cfg[2]["repos"] = ["CSES"]
     arms = assign_arms(thirteen(), arms_cfg, [{"repo": "vinimlo/cses", "arm": 0}])
-    assert arms["cses"] == 2
+    assert arms["vinimlo/cses"] == 2
 
 
 def test_repository_without_language_data_falls_back_to_its_primary_language():
     repo = make("rest-only", languages={}, primary="TypeScript")
-    assert assign_arms([repo], ARMS, [])["rest-only"] == 1
+    assert assign_arms([repo], ARMS, [])["ada/rest-only"] == 1
 
 
 def test_repository_with_no_language_at_all_stays_loose():
     repo = make("empty", languages={}, primary=None)
-    assert assign_arms([repo], ARMS, [])["empty"] is None
+    assert assign_arms([repo], ARMS, [])["ada/empty"] is None
 
 
 # ── which repositories become stars ──────────────────────────────────────────
@@ -244,7 +244,7 @@ def test_a_focus_area_without_repositories_is_not_an_arm():
 def test_labels_are_the_featured_projects_plus_the_brightest_repository():
     config = demo_config()
     config["projects"] = [{"repo": "galaxy-dev/lightcurve"}]
-    assert galaxy(load_demo(), config).labels == frozenset({"lightcurve", "nebula-ui"})
+    assert galaxy(load_demo(), config).labels == frozenset({"galaxy-dev/lightcurve", "galaxy-dev/nebula-ui"})
 
 
 def test_never_more_than_four_labels():
@@ -255,7 +255,7 @@ def test_never_more_than_four_labels():
 
 def test_entrance_order_is_the_order_of_creation_across_the_whole_galaxy():
     model = galaxy(load_demo(), demo_config())
-    assert model.order[0] == "nyx-dotfiles" and model.order[-1] == "aphelion"
+    assert model.order[0] == "galaxy-dev/nyx-dotfiles" and model.order[-1] == "galaxy-dev/aphelion"
     assert len(model.order) == 15
 
 
@@ -277,3 +277,57 @@ def test_empty_profile_is_two_unnamed_arms_and_nothing_else():
 def test_a_featured_fork_is_a_star_even_though_other_forks_are_not():
     snap = snapshot([make("mine", 5), make("fork-a", 9, fork=True), make("fork-b", 9, fork=True)])
     assert [r.name for r in visible_repos(snap, {"projects": [{"repo": "ada/fork-a"}]})] == ["fork-a", "mine"]
+
+
+# ── two repositories, one name ───────────────────────────────────────────────
+
+from generator.model import galaxy as galaxy_model
+
+
+def linux_pair():
+    """A contributor's stale fork of a project they feature, next to the project itself."""
+    fork = make("linux", stars=0, languages={"C": 1}, fork=True, pushed=TODAY - timedelta(days=900))
+    upstream = make("linux", stars=150000, languages={"C": 1}, owner="torvalds", pushed=TODAY - timedelta(days=1))
+    tool = make("tool", stars=3, languages={"Python": 1})
+    return [fork, upstream, tool]
+
+
+def test_featuring_an_upstream_project_does_not_let_the_users_fork_of_it_in():
+    config = {"projects": [{"repo": "torvalds/linux"}]}
+    shown = visible_repos(snapshot(linux_pair()), config)
+    assert [(r.owner, r.name) for r in shown] == [("torvalds", "linux"), ("ada", "tool")]
+
+
+def test_featuring_ones_own_fork_by_bare_name_lets_that_fork_in():
+    shown = visible_repos(snapshot(linux_pair()[:1] + linux_pair()[2:]), {"projects": [{"repo": "linux"}]})
+    assert [(r.owner, r.name) for r in shown] == [("ada", "linux"), ("ada", "tool")]
+
+
+def test_two_repositories_with_one_name_are_two_stars_each_with_its_own_data():
+    own = make("tool", stars=2, languages={"Python": 1}, created=date(2020, 1, 1))
+    theirs = make("tool", stars=900, languages={"Python": 1}, owner="babbage", created=date(2021, 1, 1))
+    config = {"galaxy_arms": [{"name": "Backend", "items": ["Python"]}], "projects": [{"repo": "babbage/tool"}]}
+    model = galaxy_model(snapshot([own, theirs]), config)
+    assert model.order == ("ada/tool", "babbage/tool")
+    assert [(r.owner, r.stars) for r in model.arms[0].repos] == [("ada", 2), ("babbage", 900)]
+    assert model.labels == frozenset({"babbage/tool"})
+
+
+def test_a_pin_by_bare_name_means_the_users_own_repository():
+    own, theirs = make("tool", languages={"Go": 1}), make("tool", languages={"Go": 1}, owner="babbage")
+    arms = [{"name": "A", "items": ["Python"]}, {"name": "B", "items": ["Rust"], "repos": ["tool"]}]
+    assert assign_arms([own, theirs], arms, [], "ada") == {"ada/tool": 1, "babbage/tool": None}
+
+
+def test_a_pin_with_an_owner_means_exactly_that_repository():
+    own, theirs = make("tool", languages={"Go": 1}), make("tool", languages={"Go": 1}, owner="babbage")
+    arms = [{"name": "A", "items": ["Python"]}, {"name": "B", "items": ["Rust"], "repos": ["Babbage/Tool"]}]
+    assert assign_arms([own, theirs], arms, [], "ada") == {"ada/tool": None, "babbage/tool": 1}
+    assert assign_arms([own, theirs], arms[:1], [{"repo": "babbage/tool", "arm": 0}], "ada") == {
+        "ada/tool": None, "babbage/tool": 0}
+
+
+def test_a_bare_name_reaches_another_owners_repository_when_the_user_has_none_by_that_name():
+    theirs = make("difference", languages={"Go": 1}, owner="babbage")
+    arms = [{"name": "A", "items": ["Python"], "repos": ["difference"]}]
+    assert assign_arms([theirs], arms, [], "ada") == {"babbage/difference": 0}

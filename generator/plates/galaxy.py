@@ -231,7 +231,7 @@ def arm_cuts(model, geo: Geometry) -> list:
 
 
 def place_stars(model, geo: Geometry, rng) -> dict:
-    """{repository name: (x, y)} in the frame's coordinates.
+    """{repository key: (x, y)} in the frame's coordinates.
 
     On an arm, repositories run from the oldest near the core to the newest
     near the arm's end, evenly spaced in radius. Those without an arm float
@@ -241,7 +241,7 @@ def place_stars(model, geo: Geometry, rng) -> dict:
     for index, (arm, cut) in enumerate(zip(model.arms, arm_cuts(model, geo))):
         inner, outer = geo.radius * INNER_EDGE, cut * OUTER_EDGE
         for q, repo in enumerate(arm.repos):
-            positions[repo.name] = geo.point(index, inner + (outer - inner) * (q + 0.5) / len(arm.repos))
+            positions[repo.key] = geo.point(index, inner + (outer - inner) * (q + 0.5) / len(arm.repos))
     for repo in model.loose:
         spot = None
         for _ in range(12):
@@ -249,7 +249,7 @@ def place_stars(model, geo: Geometry, rng) -> dict:
             spot = (geo.cx + r * math.cos(a), geo.cy + r * math.sin(a))
             if all(math.hypot(spot[0] - x, spot[1] - y) >= MIN_GAP for x, y in positions.values()):
                 break
-        positions[repo.name] = spot
+        positions[repo.key] = spot
     return positions
 
 
@@ -270,10 +270,12 @@ def label_text(name: str, geo: Geometry) -> str:
     return wrap(name, label_size(geo), LABEL_STYLE, LABEL_MAX_WIDTH, max_lines=1)[0]
 
 
-def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obstacles: list = ()) -> dict:
+def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obstacles: list = (),
+                 texts: dict = None) -> dict:
     """{name: (x, baseline, anchor, box)} for the stars that get their name written.
 
-    obstacles are boxes already taken by other text (the arms' names).
+    obstacles are boxes already taken by other text (the arms' names). texts
+    maps a name to what is written for it, when that is not the name itself.
 
     Each label tries the right and the left of its star, level with it and a
     line above or below, and takes the spot that covers the fewest other stars
@@ -287,7 +289,7 @@ def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obsta
     placed, boxes = {}, list(obstacles)
     for name in sorted(names, key=lambda n: (-stars.get(n, 0), n)):
         x, y = positions[name]
-        width = measure(label_text(name, geo), size, LABEL_STYLE)
+        width = measure(label_text((texts or {}).get(name, name), geo), size, LABEL_STYLE)
         reach = spike_half(stars.get(name, 0)) + 5
         best = None
         for right in (True, False):
@@ -478,8 +480,8 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
     mo, ts = Motion(motion), Typesetter()
     rng = random.Random(f"galaxy:{seed}")
     cuts = arm_cuts(model, geo)
-    repos = {r.name: r for arm in model.arms for r in arm.repos}
-    repos.update({r.name: r for r in model.loose})
+    repos = {r.key: r for arm in model.arms for r in arm.repos}
+    repos.update({r.key: r for r in model.loose})
 
     sky = _sky(geo, theme, rng, mo)
     dust_defs, dust_body = dust(geo, cuts, theme, rng, mo, keep)
@@ -540,12 +542,13 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
     taken = [(min(x for x, _y in points) - size, min(y for _x, y in points) - size,
               max(x for x, _y in points) - min(x for x, _y in points) + 2 * size,
               max(y for _x, y in points) - min(y for _x, y in points) + 2 * size) for _name, points in arm_names]
+    written = {name: r.name for name, r in repos.items()}
     for name, (x, baseline, anchor, box) in place_labels(sorted(model.labels & set(positions)), positions,
-                                                          star_counts, geo, taken).items():
+                                                          star_counts, geo, taken, written).items():
         body.append(f'<g{mo.cls("soft", delay=when[name] + 0.35)}>'
                     f'<rect x="{num(box[0])}" y="{num(box[1])}" width="{num(box[2])}" height="{num(box[3])}" rx="8" '
                     f'fill="{theme.chip[0]}" fill-opacity="{theme.chip[1]}" filter="url(#lb)"/>'
-                    f'{ts.line(x, baseline, label_text(name, geo), size, theme.ink, LABEL_STYLE, anchor, halo=(theme.bg, 2.4, 0.55))}</g>')
+                    f'{ts.line(x, baseline, label_text(written[name], geo), size, theme.ink, LABEL_STYLE, anchor, halo=(theme.bg, 2.4, 0.55))}</g>')
     for name, points in arm_names:
         body.append(ts.on_curve(points, name, size, theme.mute, "italic", mo.cls("soft", delay=T_IN + 2.2),
                                 halo=(theme.bg, 3.5, 1)))

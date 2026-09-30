@@ -49,6 +49,11 @@ class Repo:
     topics: tuple
     is_fork: bool
 
+    @property
+    def key(self) -> str:
+        """What tells this repository from every other: "owner/name", in lower case."""
+        return f"{self.owner}/{self.name}".lower()
+
 
 @dataclass(frozen=True)
 class Snapshot:

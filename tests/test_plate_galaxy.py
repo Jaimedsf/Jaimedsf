@@ -255,10 +255,10 @@ def test_stars_on_an_arm_sit_on_its_curve_further_out_the_newer_they_are():
     geo = Geometry(False, len(model.arms))
     positions = place_stars(model, geo, random.Random("galaxy-dev"))
     for index, arm in enumerate(model.arms):
-        radii = [distance(positions[r.name], (geo.cx, geo.cy)) for r in arm.repos]
+        radii = [distance(positions[r.key], (geo.cx, geo.cy)) for r in arm.repos]
         assert radii == sorted(radii)
         for r, radius in zip(arm.repos, radii):
-            assert distance(positions[r.name], geo.point(index, radius)) < 0.01
+            assert distance(positions[r.key], geo.point(index, radius)) < 0.01
 
 
 def test_stars_on_an_arm_stay_between_the_core_and_the_arms_cut():
@@ -267,7 +267,7 @@ def test_stars_on_an_arm_stay_between_the_core_and_the_arms_cut():
     positions = place_stars(model, geo, random.Random("galaxy-dev"))
     for arm, cut in zip(model.arms, arm_cuts(model, geo)):
         for r in arm.repos:
-            assert geo.radius * 0.26 <= distance(positions[r.name], (geo.cx, geo.cy)) <= cut * 0.95 + 0.01
+            assert geo.radius * 0.26 <= distance(positions[r.key], (geo.cx, geo.cy)) <= cut * 0.95 + 0.01
 
 
 def test_loose_stars_keep_their_distance_from_every_other_star():
@@ -275,14 +275,14 @@ def test_loose_stars_keep_their_distance_from_every_other_star():
     geo = Geometry(False, len(model.arms))
     positions = place_stars(model, geo, random.Random("galaxy-dev"))
     for loose in model.loose:
-        others = [p for name, p in positions.items() if name != loose.name]
-        assert min(distance(positions[loose.name], p) for p in others) >= 14
+        others = [p for key, p in positions.items() if key != loose.key]
+        assert min(distance(positions[loose.key], p) for p in others) >= 14
 
 
 def test_forty_repositories_on_one_arm_are_all_drawn_inside_its_cut():
     day = date(2020, 1, 1)
     arm = Arm("Backend", tuple(repo(f"r{i:02d}", day + timedelta(days=30 * i)) for i in range(40)))
-    model = GalaxyModel(arms=(arm,), loose=(), labels=frozenset(), order=tuple(r.name for r in arm.repos))
+    model = GalaxyModel(arms=(arm,), loose=(), labels=frozenset(), order=tuple(r.key for r in arm.repos))
     geo = Geometry(False, 1)
     positions = place_stars(model, geo, random.Random("x"))
     assert len(positions) == 40
@@ -349,8 +349,8 @@ def test_every_label_box_stays_inside_the_frame(mobile):
     model = demo_model()
     geo = Geometry(mobile, len(model.arms))
     positions = place_stars(model, geo, random.Random("galaxy-dev"))
-    stars = {r.name: r.stars for arm in model.arms for r in arm.repos}
-    stars.update({r.name: r.stars for r in model.loose})
+    stars = {r.key: r.stars for arm in model.arms for r in arm.repos}
+    stars.update({r.key: r.stars for r in model.loose})
     placed = place_labels(sorted(model.labels), positions, stars, geo)
     assert set(placed) == set(model.labels)
     for _x, _y, _anchor, (left, top, width, height) in placed.values():
@@ -495,8 +495,8 @@ def big_model(stars=48, arms=6):
                   languages={"Python": 1}, topics=(), is_fork=False) for i in range(stars)]
     per = stars // arms
     built = tuple(Arm(f"Area {a}", tuple(repos[a * per:(a + 1) * per])) for a in range(arms))
-    return GalaxyModel(arms=built, loose=(), labels=frozenset(r.name for r in repos[-4:]),
-                       order=tuple(r.name for r in repos), today=date(2026, 9, 30))
+    return GalaxyModel(arms=built, loose=(), labels=frozenset(r.key for r in repos[-4:]),
+                       order=tuple(r.key for r in repos), today=date(2026, 9, 30))
 
 
 @pytest.mark.parametrize("arms", [3, 6, 12])
@@ -522,8 +522,9 @@ def wordy_model():
     names = {"repo-47": "JACKDAWS_love.my", "repo-46": "big-SPHINX-of-qtz", "repo-45": "Zephyr.Vow-Quick", "repo-44": "0123456789-xyz"}
     arms = tuple(Arm(area, tuple(replace(r, name=names.get(r.name, r.name)) for r in arm.repos))
                  for area, arm in zip(areas, base.arms))
-    return GalaxyModel(arms=arms, loose=(), labels=frozenset(names.values()),
-                       order=tuple(names.get(n, n) for n in base.order), today=base.today)
+    renamed_repos = [r for arm in arms for r in arm.repos]
+    return GalaxyModel(arms=arms, loose=(), labels=frozenset(r.key for r in renamed_repos if r.name in names.values()),
+                       order=tuple(r.key for r in sorted(renamed_repos, key=lambda r: r.created)), today=base.today)
 
 
 WORDY = {"name": "Žofie Ångström-Queißer", "tagline": "Jived fox nymph grabs quick waltz; BLOWZY & VEXED?",
@@ -552,7 +553,7 @@ def test_a_stars_state_is_judged_against_the_day_of_the_snapshot():
                primary_language="Python", languages={"Python": 1}, topics=(), is_fork=False)
 
     def model_on(today):
-        return GalaxyModel(arms=(Arm("Backend", (one,)),), loose=(), labels=frozenset(), order=("solo",), today=today)
+        return GalaxyModel(arms=(Arm("Backend", (one,)),), loose=(), labels=frozenset(), order=("ada/solo",), today=today)
 
     assert "url(#hn)" in plate(model=model_on(pushed + timedelta(days=5)))
     assert "url(#hn)" not in plate(model=model_on(pushed + timedelta(days=60)))
@@ -637,3 +638,18 @@ def test_an_arm_name_outside_the_font_does_not_paint_over_the_galaxy(name):
         rules.text_strokes_are_thin(svg)
         widths = [float(e.attrib["stroke-width"]) for e in ET.fromstring(svg).iter() if e.tag.endswith("text")]
         assert widths == [3.5, 3.5, 3.5]
+
+
+def test_a_featured_upstream_and_the_users_own_repository_of_the_same_name_are_two_different_stars():
+    own = Repo(name="linux", owner="ada", stars=0, created=date(2020, 1, 1), pushed=date(2022, 1, 1), description="",
+               primary_language="C", languages={"C": 1}, topics=(), is_fork=False)
+    upstream = replace(own, owner="torvalds", stars=150000, created=date(2011, 1, 1), pushed=date(2026, 9, 29))
+    model = GalaxyModel(arms=(Arm("Systems", (upstream, own)),), loose=(), labels=frozenset({"torvalds/linux"}),
+                        order=("torvalds/linux", "ada/linux"), today=date(2026, 9, 30))
+    svg = plate(model=model)
+    spots = re.findall(r'<g transform="translate\(([\d.]+ [\d.]+)\)"><g[^>]*><circle', svg)
+    assert len(spots) == 2 and len(set(spots)) == 2               # two stars, in two places
+    assert star_count(svg) == 2
+    assert len(re.findall(r'fill="url\(#cn\)"', svg)) == 1        # the upstream one, pushed yesterday, is lit
+    assert len(re.findall(r'stroke-opacity=".8"/>', svg)) == 1     # the old one is a dormant ring
+    assert texts(svg).count("linux") == 1                          # and only the featured one is named
