@@ -172,3 +172,50 @@ def test_strokes_reject_a_fallback_text_outlined_in_font_units():
     with pytest.raises(AssertionError, match="259.3 px outline"):
         rules.text_strokes_are_thin(svg(wide))
     rules.text_strokes_are_thin(svg(wide.replace("259.3", "3.5")))
+
+
+# ── T1b: an animation ends where the still image is ──────────────────────────
+
+def animated(css, body='<g class="soft"/>'):
+    return svg(f"<defs><style>{GUARD}{{{css}}}</style></defs>{body}")
+
+
+def test_ending_accepts_an_entrance_that_only_says_where_it_comes_from():
+    rules.animations_end_at_rest(animated(".soft{animation:soft 1.2s ease-out both}@keyframes soft{from{opacity:0}}"))
+    rules.animations_end_at_rest(animated(
+        ".soft{animation:soft 1s both}@keyframes soft{0%{opacity:0;transform:scale(2)}"
+        "60%{transform:scale(.5)}100%{opacity:1;transform:rotate(0deg) scale(1)}}"))
+
+
+@pytest.mark.parametrize("css", [
+    ".soft{animation:soft 1.2s ease-out both}@keyframes soft{to{opacity:0}}",
+    ".soft{animation:soft 1.2s ease-out both}@keyframes soft{from{opacity:1}100%{opacity:0}}",
+    ".soft{animation:soft .75s both}@keyframes soft{from{opacity:0}to{transform:scale(0)}}",
+    ".soft{animation:soft 2s both}@keyframes soft{from{stroke-dashoffset:0}to{stroke-dashoffset:1}}",
+    ".soft{animation:soft 2s both}@keyframes soft{0%{opacity:0}50%,100%{transform:translateY(8px)}}",
+])
+def test_ending_rejects_an_entrance_that_finishes_away_from_the_still_image(css):
+    with pytest.raises(AssertionError, match="ends away from"):
+        rules.animations_end_at_rest(animated(css))
+
+
+def test_ending_rejects_an_entrance_that_does_not_hold_its_first_frame_through_its_delay():
+    with pytest.raises(AssertionError, match="fill"):
+        rules.animations_end_at_rest(animated(".soft{animation:soft 1.2s ease-out}@keyframes soft{from{opacity:0}}"))
+
+
+def test_ending_rejects_a_motion_only_element_left_visible():
+    leave = '<g class="leave mo" opacity="0"/>'
+    rules.animations_end_at_rest(animated(
+        ".leave{animation:leave 1s both}@keyframes leave{0%{opacity:1}100%{opacity:0}}", leave))
+    with pytest.raises(AssertionError, match="left visible"):
+        rules.animations_end_at_rest(animated(
+            ".leave{animation:leave 1s both}@keyframes leave{0%{opacity:0}100%{opacity:1}}", leave))
+    with pytest.raises(AssertionError, match="left visible"):
+        rules.animations_end_at_rest(animated(
+            ".leave{animation:leave 1s both}@keyframes leave{0%{opacity:0}50%{opacity:1}}", leave))
+
+
+def test_ending_leaves_loops_alone():
+    rules.animations_end_at_rest(animated(
+        ".soft{animation:soft 60s linear infinite}@keyframes soft{to{transform:rotate(360deg)}}"))

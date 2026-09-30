@@ -85,6 +85,45 @@ def rest_state_is_complete(svg):
         assert not motion_only or hidden, f"<{tag}> is motion-only but visible at rest"
 
 
+_RULE = re.compile(r"\.([\w-]+)\{([^{}]*)\}")
+_KEYFRAMES = re.compile(r"@keyframes ([\w-]+)\{((?:[^{}]*\{[^{}]*\})*)\}")
+_FRAME = re.compile(r"([^{}]+)\{([^{}]*)\}")
+# what a last keyframe may say: the values the element has anyway
+_AT_REST = re.compile(r"opacity:1|stroke-dashoffset:0|transform:(?:none|(?:(?:rotate\(0(?:deg)?\)|scale\(1\)|"
+                      r"translate[XY]?\(0(?:px)?\))\s*)+)")
+
+
+def animations_end_at_rest(svg):
+    """T1b. An animation that plays once ends on the still image, and holds its first frame until it starts.
+
+    The still image is the markup without any CSS. An entrance may say where
+    an element comes from; if it also says where it ends, that has to be the
+    element's own state. An element that exists only for motion ends hidden.
+    Loops are not judged here.
+    """
+    motion_only = {}
+    for _tag, attrib in _elements(_STYLE.sub("", svg)):
+        for name in _classes(attrib):
+            motion_only[name] = motion_only.get(name, True) and "mo" in _classes(attrib)
+    for css in _STYLE.findall(svg):
+        frames = {name: _FRAME.findall(body) for name, body in _KEYFRAMES.findall(css)}
+        for name, declarations in _RULE.findall(_without_keyframes(css)):
+            animation = re.search(r"animation:([^;]*)", declarations)
+            if not animation or "infinite" in animation.group(1) or name not in motion_only:
+                continue
+            assert re.search(r"\b(both|backwards)\b", animation.group(1)), \
+                f".{name} has no fill mode: the element shows at rest, then jumps to the first frame"
+            last = [body for selector, body in frames.get(name, []) if {"to", "100%"} & {s.strip() for s in selector.split(",")}]
+            if motion_only[name]:
+                assert last and all(re.search(r"opacity:0(?![.\d])", body) for body in last), \
+                    f".{name} is only for motion but is left visible when it ends"
+            else:
+                for body in last:
+                    for declaration in filter(None, body.split(";")):
+                        assert declaration.startswith("animation-timing-function") or _AT_REST.fullmatch(declaration), \
+                            f".{name} ends away from the still image: {declaration}"
+
+
 def no_forbidden_techniques(svg):
     """T2. No non-scaling strokes, no SMIL, no group opacity on or around particle paths."""
     assert "vector-effect" not in svg, "vector-effect breaks under pinch zoom"

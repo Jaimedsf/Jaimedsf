@@ -71,6 +71,10 @@ def test_rest_state_is_complete(moving, still):
     rules.rest_state_is_complete(still)
 
 
+def test_animations_end_on_the_still_image(moving):
+    rules.animations_end_at_rest(moving)
+
+
 def test_no_forbidden_techniques(moving):
     rules.no_forbidden_techniques(moving)
 
