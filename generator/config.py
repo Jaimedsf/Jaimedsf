@@ -7,7 +7,7 @@ from generator.utils import resolve_theme, HEX_COLOR_RE
 PALETTE_KEYS = ("dark", "light")
 
 
-def _repo_key(name: str) -> str:
+def repo_key(name: str) -> str:
     """How a repository is compared across arms: by name, without owner, ignoring case."""
     return str(name).split("/")[-1].lower()
 
@@ -62,7 +62,7 @@ def validate_config(config: dict) -> dict:
     pinned = {}
     for i, arm in enumerate(galaxy_arms):
         for repo in arm.get("repos", []):
-            key = _repo_key(repo)
+            key = repo_key(repo)
             if key in pinned and pinned[key] != i:
                 raise ConfigError(
                     f"repository '{key}' is listed in galaxy_arms[{pinned[key]}] and galaxy_arms[{i}]; "
