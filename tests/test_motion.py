@@ -77,3 +77,24 @@ def test_defining_a_class_does_nothing_when_motion_is_off():
     motion = Motion(False)
     motion.define("flow", ".flow{}")
     assert motion.cls("flow") == "" and motion.css() == ""
+
+
+# ── the three lower plates ───────────────────────────────────────────────────
+
+def test_rise_lifts_an_element_from_a_given_distance_below():
+    motion = Motion()
+    assert motion.cls("rise", delay=0.22, vars={"d": "40px"}) == ' class="rise" style="animation-delay:.22s;--d:40px"'
+    assert "@keyframes rise{from{transform:translateY(var(--d));opacity:0}}" in motion.css()
+
+
+def test_grow_sweeps_an_element_open_from_its_left_edge_at_a_steady_pace():
+    motion = Motion()
+    assert motion.cls("grow", delay=0.3, duration=0.2) == ' class="grow" style="animation-delay:.3s;animation-duration:.2s"'
+    css = motion.css()
+    assert ".grow{animation:grow linear both}" in css and "@keyframes grow{from{transform:scaleX(0)}}" in css
+
+
+def test_breathe_dims_to_half_and_back_every_six_seconds():
+    motion = Motion()
+    assert motion.cls("breathe", delay=-1.1) == ' class="breathe" style="animation-delay:-1.1s"'
+    assert ".breathe{animation:breathe 6s ease-in-out infinite}@keyframes breathe{50%{opacity:.5}}" in motion.css()

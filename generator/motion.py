@@ -44,6 +44,13 @@ CATALOG = {
     "comet": ".comet{animation:comet var(--cy) linear var(--st) infinite}"
              "@keyframes comet{0%{stroke-dashoffset:var(--a);opacity:0}5%{opacity:var(--o)}"
              "40%{opacity:var(--o)}46%,100%{stroke-dashoffset:var(--b);opacity:0}}",
+    # a weekly observation rising into place from --d below; the element must sit in a translated group
+    "rise": ".rise{animation:rise .95s cubic-bezier(.2,.9,.3,1.1) both}"
+            "@keyframes rise{from{transform:translateY(var(--d));opacity:0}}",
+    # a segment opening from its left edge; give it a duration, and keep it in a translated group
+    "grow": ".grow{animation:grow linear both}@keyframes grow{from{transform:scaleX(0)}}",
+    # light that dims and comes back slowly
+    "breathe": ".breathe{animation:breathe 6s ease-in-out infinite}@keyframes breathe{50%{opacity:.5}}",
 }
 
 
