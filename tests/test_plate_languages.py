@@ -411,18 +411,42 @@ def item_lines(svg, top=150):
     return [run for run in text_runs(svg) if run["style"] == "regular" and run["y"] > top]
 
 
-def test_up_to_three_focus_areas_get_two_lines_each_and_more_than_three_get_one():
+def test_lists_keep_two_lines_as_long_as_the_file_fits_whatever_the_number_of_areas():
+    four = [{"name": name, "items": items[:6]} for name, items in ORDINARY[:4]]
     for mobile in (False, True):
         top = 180 if mobile else 150
         assert len(item_lines(plate(arms=ordinary_areas(3), mobile=mobile), top)) == 6
-        assert len(item_lines(plate(arms=ordinary_areas(4), mobile=mobile), top)) == 4
-        assert len(item_lines(plate(arms=ordinary_areas(6), mobile=mobile), top)) == 6
+        svg = plate(arms=[dict(area, items=area["items"] * 2) for area in four], mobile=mobile)
+        assert len(item_lines(svg, top)) == 8                       # four areas, two lines each
+        rules.within_budget(svg, 48_000, 80)
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+@pytest.mark.parametrize("areas", [ordinary_areas(6), six_long_areas(), ordinary_areas(6) + ordinary_areas(6)],
+                         ids=["six", "six-long", "twelve"])
+def test_the_lists_get_two_lines_exactly_when_two_lines_fit_the_budget(areas, mobile):
+    two = languages._compose(SHARES, areas, SKY, mobile, True, 2)
+    one = languages._compose(SHARES, areas, SKY, mobile, True, 1)
+    assert len(one.encode()) < len(two.encode())
+    assert plate(arms=areas, mobile=mobile) == (two if len(two.encode()) <= 48_000 else one)
+
+
+def test_twelve_full_focus_areas_are_what_it_takes_to_lose_the_second_line():
+    assert len(languages._compose(SHARES, ordinary_areas(6), SKY, False, True, 2).encode()) <= 48_000
+    twelve = ordinary_areas(6) + ordinary_areas(6)
+    assert len(languages._compose(SHARES, twelve, SKY, True, True, 2).encode()) > 48_000
+    assert len(item_lines(plate(arms=twelve, mobile=True), 180)) == 12
+
+
+def test_the_description_lists_the_stack_as_it_is_drawn():
+    svg = plate(arms=[{"name": "Tools", "items": ["Git", None, "", "  ", 3, "Vim"]}, {"name": None, "items": ["Go"]}])
+    assert "Declared stack: Tools: Git, 3, Vim; Go." in svg
 
 
 def test_a_cut_list_ends_in_an_ellipsis_with_no_comma_left_hanging_before_it():
     cut = [run["text"] for mobile in (False, True) for count in (1, 3, 6)
            for run in item_lines(plate(arms=ordinary_areas(count), mobile=mobile), 150) if run["text"].endswith("…")]
-    assert len(cut) >= 12 and not any(text.endswith(",…") for text in cut)
+    assert len(cut) >= 6 and not any(text.endswith(",…") for text in cut)
 
 
 def test_a_plate_over_its_budget_gives_up_the_second_line_of_each_list(monkeypatch):

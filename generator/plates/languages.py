@@ -21,7 +21,7 @@ GAP = 2                           # pixels between segments
 BAND_Y, BAND_H, LIGHT_H = 56, 24, 16
 SWEEP, SWEEP_STARTS = 1.5, 0.25   # seconds the entrance sweep takes, and when it starts
 COLUMNS = 3                       # focus areas per row on desktop
-LIST_LINES = 2                    # lines a focus area's items may take; one, when there are more than three areas
+LIST_LINES = 2                    # lines a focus area's items may take, while the file fits its budget
 BYTE_BUDGET = 48_000              # the file's ceiling (spec, section 5)
 
 logger = logging.getLogger(__name__)
@@ -52,12 +52,17 @@ def _band(shares: list, theme, x0: float, x1: float) -> list:
     return out
 
 
+def _items(items) -> list:
+    """A focus area's items as text, without the empty ones."""
+    if not isinstance(items, (list, tuple)):
+        return []
+    return [text for text in (clean(item).strip() for item in items if item is not None) if text]
+
+
 def _list_lines(items: list, size: float, limit: float, most: int = LIST_LINES) -> list:
     """A focus area's items as running text in up to `most` lines, broken between items, never inside one."""
     lines, current = [], ""
-    for item in (clean(item).strip() for item in items if item is not None):
-        if not item:
-            continue
+    for item in _items(items):
         candidate = f"{current}, {item}" if current else item
         if not current or measure(candidate + ",", size) <= limit:
             current = candidate
@@ -98,8 +103,9 @@ def _stack(arms: list, theme, mobile: bool, x0: float, x1: float, top: float, ts
 
 def _summary(shares: list, arms: list) -> str:
     measured = ", ".join(f"{name} {_percent(percent)}" for name, percent in shares) or EMPTY
-    declared = "; ".join(f"{arm.get('name') or ''}: {', '.join(str(item) for item in arm.get('items') or [])}"
-                         for arm in arms)
+    declared = "; ".join(
+        ": ".join(part for part in (clean(arm.get("name") or "").strip(), ", ".join(_items(arm.get("items")))) if part)
+        for arm in arms)
     return f"{measured}." + (f" Declared stack: {declared}." if declared else "")
 
 
@@ -107,16 +113,16 @@ def render(shares: list, arms: list, theme, mobile: bool = False, motion: bool =
     """shares is what model.language_shares returns; arms is the config's galaxy_arms.
 
     Every character of the declared stack is a glyph in the file, so the lists
-    are what decides its size. Up to three focus areas get two lines each and
-    more get one; if the file is still over BYTE_BUDGET, every list is cut to
-    one line. Nothing else is given up: a file that is still over is drawn
-    anyway, with a warning.
+    are what decides its size. Each focus area's list gets two lines; if that
+    puts the file over BYTE_BUDGET, each gets one. Nothing else is given up:
+    a file that is still over is drawn anyway, with a warning.
     """
-    svg = ""
-    for list_lines in ((LIST_LINES if len(arms) <= COLUMNS else 1), 1):
-        svg = _compose(shares, arms, theme, mobile, motion, list_lines)
-        if len(svg.encode("utf-8")) <= BYTE_BUDGET:
-            return svg
+    drawn = []
+    for list_lines in range(LIST_LINES, 0, -1):
+        drawn.append(_compose(shares, arms, theme, mobile, motion, list_lines))
+        if len(drawn[-1].encode("utf-8")) <= BYTE_BUDGET:
+            return drawn[-1]
+    svg = min(drawn, key=lambda candidate: len(candidate.encode("utf-8")))
     logger.warning("tech-stack%s is %d bytes, over the %d budget: the focus areas hold a lot of text.",
                    "-mobile" if mobile else "", len(svg.encode("utf-8")), BYTE_BUDGET)
     return svg
