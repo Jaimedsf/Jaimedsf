@@ -83,8 +83,8 @@ def test_project_arm_wins_over_the_share_rule():
 
 
 def test_a_project_without_an_arm_does_not_pin_anything():
-    repo = make("site", languages={"Python": 100})
-    assert assign_arms([repo], ARMS, [{"repo": "ada/site"}])["site"] == 0
+    repo = make("site", languages={"TypeScript": 100})
+    assert assign_arms([repo], ARMS, [{"repo": "ada/site"}])["site"] == 1
 
 
 def test_arm_repos_list_pins_a_repository_and_beats_the_project_arm():
