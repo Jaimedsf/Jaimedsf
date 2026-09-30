@@ -93,3 +93,65 @@ def test_accessibility_rejects_a_missing_role_or_empty_description():
         rules.is_accessible(svg("", head='<svg xmlns="http://www.w3.org/2000/svg"><title>t</title><desc>d</desc>'))
     with pytest.raises(AssertionError, match="title and desc"):
         rules.is_accessible(svg("", head='<svg xmlns="http://www.w3.org/2000/svg" role="img"><title>t</title><desc> </desc>'))
+
+
+# ── review fixes: the rules must see more ────────────────────────────────────
+
+def test_rest_state_rejects_other_spellings_of_zero_opacity():
+    for hidden in ('<g opacity="0.0" class="soft"/>', '<g opacity=".0"/>', '<g style="opacity:0"/>',
+                   '<g style="--d:4px;opacity: 0;"/>'):
+        with pytest.raises(AssertionError, match="invisible at rest"):
+            rules.rest_state_is_complete(svg(hidden))
+
+
+def test_rest_state_rejects_a_css_rule_that_hides_an_element_outside_keyframes():
+    css = f"<style>{GUARD}{{.hide{{opacity:0}}@keyframes a{{from{{opacity:0}}}}}}</style>"
+    with pytest.raises(AssertionError, match="CSS rule"):
+        rules.rest_state_is_complete(svg(css + '<g class="hide"/>'))
+
+
+def test_rest_state_accepts_keyframes_that_start_from_zero():
+    rules.rest_state_is_complete(svg(f"<style>{GUARD}{{.a{{animation:a 1s both}}@keyframes a{{from{{opacity:0}}}}}}</style>"))
+
+
+def test_forbidden_rejects_a_group_opacity_wrapping_particles():
+    particles = "M1 1h.01" + "m2 2h.01" * 6
+    with pytest.raises(AssertionError, match="stroke-opacity"):
+        rules.no_forbidden_techniques(svg(f'<g opacity=".5"><g><path d="{particles}"/></g></g>'))
+
+
+def test_forbidden_allows_a_motion_only_wrapper_around_particles():
+    particles = "M1 1h.01" + "m2 2h.01" * 6
+    rules.no_forbidden_techniques(svg(f'<g class="actors mo" opacity="0"><path d="{particles}"/></g>'))
+
+
+def test_guard_rejects_an_animation_named_in_an_inline_style():
+    with pytest.raises(AssertionError, match="inline"):
+        rules.motion_is_guarded(svg('<g style="animation-name:spin;animation-duration:1s"/>'))
+    with pytest.raises(AssertionError, match="inline"):
+        rules.motion_is_guarded(svg('<g style="animation:spin 1s infinite"/>'))
+
+
+def test_guard_accepts_inline_timing_and_custom_properties():
+    rules.motion_is_guarded(svg('<g class="pop" style="animation-delay:.2s;animation-duration:1s;--d:4px"/>'))
+
+
+def test_bounds_reject_fallback_text_running_off_the_plate():
+    text = '<text x="60" y="20" font-family="Georgia, serif" font-size="16" fill="#fff">日本語の説明です</text>'
+    with pytest.raises(AssertionError, match="sideways"):
+        rules.text_stays_inside(svg(text))
+
+
+def test_bounds_accept_fallback_text_that_fits():
+    rules.text_stays_inside(svg('<text x="10" y="20" font-family="Georgia, serif" font-size="12" fill="#fff">日本</text>'))
+
+
+def test_bounds_reject_an_element_placed_outside_the_plate():
+    with pytest.raises(AssertionError, match="outside"):
+        rules.placements_are_inside(svg('<g transform="translate(-40 20)"><circle r="2"/></g>'))
+    with pytest.raises(AssertionError, match="outside"):
+        rules.placements_are_inside(svg('<g fill="#fff"><use href="#i41" transform="translate(50 80) rotate(10) scale(.01) translate(-300 0)"/></g>'))
+
+
+def test_bounds_ignore_coordinates_inside_a_transformed_group():
+    rules.placements_are_inside(svg('<g transform="translate(50 25)"><g transform="translate(-300 0)"/></g>'))

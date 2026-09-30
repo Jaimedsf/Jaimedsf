@@ -128,3 +128,42 @@ class TestAtlasKeys:
     def test_arm_repos_are_accepted(self, cfg):
         cfg["galaxy_arms"][2]["repos"] = ["infra-tools", "deploy-scripts"]
         assert validate_config(cfg)["galaxy_arms"][2]["repos"] == ["infra-tools", "deploy-scripts"]
+
+
+class TestProjectFields:
+    def test_a_description_that_yaml_read_as_a_boolean_is_rejected_clearly(self, cfg):
+        cfg["projects"][0]["description"] = False        # `description: No` in YAML
+        with pytest.raises(ConfigError, match="description must be text"):
+            validate_config(cfg)
+
+    def test_a_project_pinned_to_one_arm_and_listed_in_another_is_rejected(self, cfg):
+        cfg["projects"][0]["arm"] = 0                    # galaxy-dev/nebula-ui
+        cfg["galaxy_arms"][1]["repos"] = ["nebula-ui"]
+        with pytest.raises(ConfigError, match="nebula-ui"):
+            validate_config(cfg)
+
+    def test_a_project_pinned_and_listed_in_the_same_arm_is_fine(self, cfg):
+        cfg["projects"][0]["arm"] = 0
+        cfg["galaxy_arms"][0]["repos"] = ["nebula-ui"]
+        validate_config(cfg)
+
+
+class TestLegacyColours:
+    """Most configs carry the nine old default colours, copied from the example. Those are not customisations."""
+
+    def test_colours_equal_to_the_old_defaults_are_not_overrides(self, cfg):
+        assert validate_config(cfg)["themes"]["overrides"] == {}
+
+    def test_a_changed_colour_is_an_override_and_the_untouched_ones_are_not(self, cfg):
+        cfg["theme"]["void"] = "#101010"
+        assert validate_config(cfg)["themes"]["overrides"] == {"void": "#101010"}
+
+    def test_default_in_another_letter_case_is_still_the_default(self, cfg):
+        cfg["theme"]["synapse_cyan"] = "#00D4FF"
+        assert validate_config(cfg)["themes"]["overrides"] == {}
+
+    def test_customised_card_colours_are_reported_as_having_no_effect(self, cfg, caplog):
+        cfg["theme"]["nebula"] = "#222222"
+        with caplog.at_level("WARNING"):
+            validate_config(cfg)
+        assert "theme.nebula" in caplog.text and "no longer" in caplog.text

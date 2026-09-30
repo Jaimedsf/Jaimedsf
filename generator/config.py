@@ -1,7 +1,14 @@
 """Config validation and defaults for the Galaxy Profile generator."""
 
+import logging
+
 from generator.themes import PALETTES
-from generator.utils import resolve_theme, HEX_COLOR_RE
+from generator.utils import DEFAULT_THEME, resolve_theme, HEX_COLOR_RE
+
+logger = logging.getLogger(__name__)
+
+# theme colours that painted card backgrounds and borders; the Atlas plates have neither
+RETIRED_COLOURS = ("nebula", "star_dust")
 
 # theme keys that choose a palette instead of overriding a colour
 PALETTE_KEYS = ("dark", "light")
@@ -84,6 +91,16 @@ def validate_config(config: dict) -> dict:
             raise ConfigError(
                 f"projects[{i}].arm must be an integer from 0 to {len(galaxy_arms) - 1}."
             )
+        if "description" in proj and not isinstance(proj["description"], str):
+            raise ConfigError(
+                f"projects[{i}].description must be text; put it in quotes (got {proj['description']!r})."
+            )
+        key = repo_key(proj["repo"])
+        if "arm" in proj and pinned.get(key, arm_idx) != arm_idx:
+            raise ConfigError(
+                f"repository '{key}' is listed in galaxy_arms[{pinned[key]}].repos but projects[{i}].arm "
+                f"is {arm_idx}; pick one arm."
+            )
 
     # theme — optional, validate hex codes
     user_theme = config.get("theme", {})
@@ -102,6 +119,11 @@ def validate_config(config: dict) -> dict:
             raise ConfigError(
                 f"theme.{key} must be a valid hex color (e.g. #00d4ff), got '{value}'."
             )
+        elif value.lower() == DEFAULT_THEME.get(key, "").lower():
+            # the old default, usually copied from the example config: not a customisation
+            continue
+        elif key in RETIRED_COLOURS:
+            logger.warning("theme.%s no longer has an effect: the plates have no card backgrounds or borders.", key)
         else:
             overrides[key] = value
 
@@ -118,7 +140,7 @@ def validate_config(config: dict) -> dict:
     config["motion"] = motion
 
     # Apply theme defaults (the nine colours the pre-Atlas templates read)
-    config["theme"] = resolve_theme(overrides)
+    config["theme"] = resolve_theme({k: v for k, v in user_theme.items() if k not in PALETTE_KEYS})
 
     # Apply other defaults
     config["profile"].setdefault("tagline", "")

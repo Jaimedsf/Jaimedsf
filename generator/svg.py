@@ -74,8 +74,12 @@ def dots(points, width: float, color: str, opacity: float = 1.0) -> str:
 
 # ── the repository star ──────────────────────────────────────────────────────
 
+# Past a few thousand stargazers the glyph stops growing, so it always fits its plate.
+MAX_MAG = 3.5
+
+
 def mag(stars: int) -> float:
-    return math.log10(1 + max(stars, 0))
+    return min(math.log10(1 + max(stars, 0)), MAX_MAG)
 
 
 def spike_half(stars: int) -> float:
@@ -104,8 +108,10 @@ def star_defs(theme) -> str:
     return "".join(out)
 
 
-def star(stars: int, state: str, theme, motion, phase: float = 0.0) -> str:
+def star(stars: int, state: str, theme, motion, phase: float = 0.0, scale: float = 1.0) -> str:
     """A repository star drawn at the origin.
+
+    scale shrinks the bloom and the spikes (not the core) where space is tight.
 
     Brighter means a wider bloom and longer spikes, not a bigger disc: the core
     stays small, as in a photograph of a real star. state is "now", "year" or
@@ -117,7 +123,7 @@ def star(stars: int, state: str, theme, motion, phase: float = 0.0) -> str:
         return (f'<circle r="{num(core + 3.4)}" fill="{theme.dorm}" fill-opacity=".09"/>'
                 f'<circle r="{num(core + .7)}" fill="none" stroke="{theme.dorm}" stroke-opacity=".8"/>')
     key = "n" if state == "now" else "y"
-    glow, half, width = core * (4.4 + 1.3 * g), spike_half(stars), 1.1 + 0.45 * g
+    glow, half, width = core * (4.4 + 1.3 * g) * scale, spike_half(stars) * scale, (1.1 + 0.45 * g) * scale
     delay = -phase if phase else None
     pulse = motion.cls("tw", delay=delay) if state == "now" else ""
     return (f'<circle r="{num(glow)}" fill="url(#h{key})"{pulse}/>'
@@ -154,8 +160,10 @@ def comet(path_id: str, theme, motion, cycle: float, start: float, tail: float =
     )
     out = []
     for length, behind, width, colour, peak in layers:
+        # one whole dash period is added so the offsets stay positive (some engines mishandle negative ones)
+        lead = behind + length + 2
         attrs = motion.cls("comet", only=True, vars={
-            "a": num(behind, 4), "b": num(behind - 1, 4), "o": num(peak, 2),
+            "a": num(lead, 4), "b": num(lead - 1, 4), "o": num(peak, 2),
             "cy": f"{num(cycle, 2)}s", "st": f"{num(start, 2)}s"})
         out.append(f'<use href="#{path_id}"{attrs} stroke="{colour}" stroke-width="{num(width * scale)}" '
                    f'stroke-linecap="round" stroke-dasharray="{num(length, 4)} 2"/>')

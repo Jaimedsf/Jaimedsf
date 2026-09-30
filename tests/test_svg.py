@@ -159,3 +159,28 @@ def test_frame_carries_the_motion_css_only_when_there_is_motion():
 def test_esc_drops_control_characters_that_xml_cannot_hold():
     assert esc("a\x08b\x00c\x1f") == "abc"
     assert esc("tab\tand\nnewline") == "tab and newline"
+
+
+def test_star_glyph_stops_growing_past_a_few_thousand_stars():
+    assert spike_half(10 ** 7) == spike_half(10 ** 4) == pytest.approx(7 + 8.5 * 3.5)
+
+
+def test_star_can_be_drawn_compact_without_shrinking_its_core():
+    full, compact = star(9, "now", SKY, Motion()), star(9, "now", SKY, Motion(), scale=0.6)
+    assert "M-15.5 0" in full and "M-9.3 0" in compact
+    assert 'r="2.2" fill="url(#cn)"' in compact
+
+
+def test_comet_dash_offsets_are_never_negative():
+    svg = comet("c1", SKY, Motion(), cycle=8, start=3, tail=0.12)
+    offsets = [float(v) for v in re.findall(r"--[ab]:(-?[\d.]+)", svg)]
+    assert len(offsets) == 10 and min(offsets) >= 0
+
+
+def test_comet_head_starts_at_the_beginning_of_the_path_and_ends_at_its_end():
+    head = re.findall(r"<use [^>]+>", comet("c1", SKY, Motion(), cycle=8, start=3))[-1]
+    dash, gap = (float(v) for v in re.search(r'stroke-dasharray="([\d.]+) ([\d.]+)"', head).groups())
+    a, b = (float(re.search(rf"--{k}:([\d.]+)", head).group(1)) for k in "ab")
+    period = dash + gap
+    assert a % period == pytest.approx(0, abs=1e-6) or a % period == pytest.approx(period, abs=1e-6)
+    assert a - b == pytest.approx(1)

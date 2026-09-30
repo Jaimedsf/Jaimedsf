@@ -142,3 +142,46 @@ def test_light_theme_draws_in_ink_on_paper():
     light = get_theme("deep-sky", "light")
     svg = featured.render(TWO, light)
     assert f'fill="{light.bg}"' in svg and f'fill="{light.ink}"' in svg
+
+
+# ── review fixes ─────────────────────────────────────────────────────────────
+
+from generator.svg import spike_half
+
+
+def three(language="Jupyter Notebook", stars=1240):
+    return [item("nebula-ui", stars, language), item("stargate-api", 486, language), item("orbit-cli", 212, "Go")]
+
+
+def test_data_line_never_runs_into_the_next_column():
+    svg = featured.render(three(), SKY)
+    column = (850 - 2 * 44) / 3
+    lines = [run for run in text_runs(svg) if run["text"].startswith("JupyterNotebook")]
+    assert len(lines) == 2
+    for run in lines:
+        start = 44 + round((run["x"] - 44) / column) * column
+        assert run["x"] + run["width"] <= start + column - 24 + 0.5, run["text"]
+
+
+def test_data_line_shortens_before_it_cuts():
+    assert any(text.startswith("JupyterNotebook,1240stars") and not text.endswith("…")
+               for text in texts(featured.render(three(), SKY)))
+
+
+def test_letter_stands_clear_of_a_bright_stars_spikes():
+    svg = featured.render(three(), SKY)
+    alpha = next(run for run in text_runs(svg) if run["text"] == "α")
+    assert alpha["x"] >= 44 + 14 + spike_half(1240) + 4
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_a_very_bright_star_stays_inside_the_plate_and_off_the_text(mobile):
+    svg = featured.render([item("huge", 250_000), item("b", 3)], SKY, mobile=mobile)
+    gx, gy = (float(v) for v in re.search(r'<g transform="translate\(([\d.]+) ([\d.]+)\)"><g class="pop"', svg).groups())
+    reach = max(float(v) for v in re.findall(r'd="M-([\d.]+) 0Q0', svg))
+    assert gx - reach >= 0 and gy - reach >= 0
+    name = next(run for run in text_runs(svg) if run["text"] == "huge")
+    if mobile:
+        assert gx + reach <= name["x"]
+    else:
+        assert gy + reach <= name["y"] - name["size"] * 0.72

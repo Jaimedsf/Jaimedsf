@@ -54,24 +54,26 @@ def _ink_ramp(ink: str, bg: str) -> tuple[str, ...]:
     return tuple(mix(ink, bg, a) for a in (1, 0.8, 0.64, 0.5, 0.4, 0.32, 0.26, 0.2))
 
 
-def _base(palette: str, mode: str) -> Theme:
+def _base(palette: str, mode: str, bg: str = "", ink: str = "") -> Theme:
+    """The palette in one mode. bg and ink, when given, replace the palette's own before anything is derived."""
     dark = mode == "dark"
+    own_bg, own_ink = {
+        ("deep-sky", True): ("#0b1020", "#eef1f6"), ("deep-sky", False): ("#f6f7f9", "#151a24"),
+        ("cyanotype", True): ("#11305a", "#f5f2e9"), ("cyanotype", False): ("#f1f4f9", "#11305a"),
+    }[(palette, dark)]
+    bg, ink = bg or own_bg, ink or own_ink
     if palette == "deep-sky" and dark:
-        bg, ink = "#0b1020", "#eef1f6"
         own = dict(now="#9fbcff", year="#fff3dc", dorm="#e0946a", haze="#b4c6f5",
                    dust=(("#a9c7ff", 0.5), ("#f3f6ff", 0.32), ("#ffb98a", 0.18)), glow=1.0,
                    ramp=("#9fbcff", "#c9d8ff", "#f4f2ec", "#ffe3b8", "#ffc584", "#f0a066", "#d18a5c", "#a86a4a"))
     elif palette == "deep-sky":
-        bg, ink = "#f6f7f9", "#151a24"
         own = dict(now="#2447b3", year=ink, dorm="#a3502a", haze=ink,
                    dust=(("#1b2233", 0.55), ("#3b5bc4", 0.28), ("#b5653a", 0.17)), glow=0.6,
                    ramp=("#2447b3", "#4f6fd0", "#8a96b8", "#b9a27e", "#c98a4a", "#b8692f", "#a3502a", "#7d3d20"))
     elif dark:
-        bg, ink = "#11305a", "#f5f2e9"
         own = dict(now="#ffb454", year=ink, dorm=ink, haze=ink,
                    dust=((ink, 0.8), ("#ffd9a0", 0.2)), glow=1.0, ramp=_ink_ramp(ink, bg))
     else:
-        bg, ink = "#f1f4f9", "#11305a"
         own = dict(now="#c9560b", year=ink, dorm=ink, haze=ink,
                    dust=((ink, 0.85), ("#c9560b", 0.15)), glow=0.6, ramp=_ink_ramp(ink, bg))
     return Theme(palette=palette, mode=mode, bg=bg, ink=ink, **_derived(bg, ink, dark), **own)
@@ -79,9 +81,9 @@ def _base(palette: str, mode: str) -> Theme:
 
 def _apply_legacy(theme: Theme, overrides: dict) -> Theme:
     """Map the nine colours of the old config onto the dark theme. nebula and star_dust have no meaning now."""
-    bg = overrides.get("void", theme.bg)
-    ink = overrides.get("text_bright", theme.ink)
-    changes = dict(bg=bg, ink=ink, **_derived(bg, ink, True))
+    # rebuild from the new background and ink, so everything the palette derives from them follows
+    theme = _base(theme.palette, "dark", overrides.get("void", ""), overrides.get("text_bright", ""))
+    changes = {}
     if "text_dim" in overrides:
         changes["mute"] = overrides["text_dim"]
     if "text_faint" in overrides:

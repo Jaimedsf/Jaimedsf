@@ -22,4 +22,5 @@ dev: demo
 	open assets/generated
 
 fonts:
+	$(PY) -m pip install -q -r requirements-fonts.txt
 	$(PY) tools/build_font_atlas.py

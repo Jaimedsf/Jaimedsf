@@ -87,6 +87,22 @@ def test_text_stays_inside_the_plate(moving):
     rules.text_stays_inside(moving)
 
 
+def test_everything_is_placed_inside_the_plate(moving):
+    rules.placements_are_inside(moving)
+
+
+def test_text_outside_the_font_still_stays_inside_the_plate(case):
+    stem, palette, _suffix, mode, mobile = case
+    config = copy.deepcopy(demo_config())
+    config["profile"]["name"] = "銀河を作る人"
+    config["profile"]["tagline"] = "オープンソースの探検家 🚀"
+    for project in config["projects"]:
+        project["description"] = "コズミックなデザイントークンとダークファーストのテーマを備えたコンポーネントライブラリ " * 3
+    svg = render(stem, palette, mode, mobile, config=config)
+    rules.text_stays_inside(svg)
+    rules.placements_are_inside(svg)
+
+
 def test_same_input_same_bytes(case, moving):
     stem, palette, _suffix, mode, mobile = case
     assert render(stem, palette, mode, mobile) == moving

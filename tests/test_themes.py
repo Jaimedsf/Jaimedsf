@@ -96,3 +96,14 @@ def test_mix_returns_the_endpoints_and_a_midpoint():
     assert mix("#ffffff", "#000000", 1) == "#ffffff"
     assert mix("#ffffff", "#000000", 0) == "#000000"
     assert mix("#ffffff", "#000000", 0.5) == "#808080"
+
+
+def test_overriding_the_ink_of_a_two_ink_palette_carries_through_everything_made_of_ink():
+    theme = get_theme("cyanotype", "dark", {"text_bright": "#ffffff"})
+    assert theme.year == theme.dorm == theme.haze == "#ffffff"
+    assert theme.ramp[0] == "#ffffff" and theme.dust[0][0] == "#ffffff"
+
+
+def test_overriding_the_background_of_a_two_ink_palette_rebuilds_its_ramp():
+    theme = get_theme("cyanotype", "dark", {"void": "#000000"})
+    assert theme.ramp[-1] == mix(theme.ink, "#000000", 0.2)

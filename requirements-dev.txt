@@ -1,5 +1,2 @@
 -r requirements.txt
 pytest==8.0.0
-# font atlas build (tools/build_font_atlas.py) — never needed at generation time
-fonttools==4.66.1
-uharfbuzz==0.56.2
