@@ -1,0 +1,89 @@
+{
+  "data": {
+    "user": {
+      "login": "ada",
+      "pullRequests": {"totalCount": 12},
+      "issues": {"totalCount": 5},
+      "contributionsCollection": {
+        "contributionCalendar": {
+          "totalContributions": 40,
+          "weeks": [
+            {"contributionDays": [
+              {"date": "2026-09-13", "contributionCount": 1},
+              {"date": "2026-09-14", "contributionCount": 2},
+              {"date": "2026-09-15", "contributionCount": 0},
+              {"date": "2026-09-16", "contributionCount": 3},
+              {"date": "2026-09-17", "contributionCount": 4},
+              {"date": "2026-09-18", "contributionCount": 0},
+              {"date": "2026-09-19", "contributionCount": 5}
+            ]},
+            {"contributionDays": [
+              {"date": "2026-09-20", "contributionCount": 10},
+              {"date": "2026-09-21", "contributionCount": 15}
+            ]}
+          ]
+        }
+      },
+      "repositories": {
+        "totalCount": 4,
+        "nodes": [
+          {
+            "name": "engine", "nameWithOwner": "ada/engine", "isFork": false, "stargazerCount": 120,
+            "createdAt": "2024-03-01T10:00:00Z", "pushedAt": "2026-09-25T08:30:00Z",
+            "description": "Analytical engine & friends",
+            "primaryLanguage": {"name": "Python"},
+            "languages": {"totalSize": 1000, "edges": [
+              {"size": 800, "node": {"name": "Python"}},
+              {"size": 200, "node": {"name": "Shell"}}
+            ]},
+            "repositoryTopics": {"nodes": [{"topic": {"name": "math"}}, {"topic": {"name": "engines"}}]}
+          },
+          {
+            "name": "notes", "nameWithOwner": "ada/notes", "isFork": false, "stargazerCount": 3,
+            "createdAt": "2025-01-10T00:00:00Z", "pushedAt": "2025-02-01T00:00:00Z",
+            "description": null,
+            "primaryLanguage": null,
+            "languages": {"totalSize": 0, "edges": []},
+            "repositoryTopics": {"nodes": []}
+          },
+          {
+            "name": "loom", "nameWithOwner": "ada/loom", "isFork": true, "stargazerCount": 7,
+            "createdAt": "2026-01-05T00:00:00Z", "pushedAt": "2026-01-06T00:00:00Z",
+            "description": "A fork",
+            "primaryLanguage": {"name": "Rust"},
+            "languages": {"totalSize": 50, "edges": [{"size": 50, "node": {"name": "Rust"}}]},
+            "repositoryTopics": {"nodes": []}
+          },
+          {
+            "name": "ada", "nameWithOwner": "ada/ada", "isFork": false, "stargazerCount": 1,
+            "createdAt": "2023-06-01T00:00:00Z", "pushedAt": "2026-09-30T00:00:00Z",
+            "description": "Profile",
+            "primaryLanguage": {"name": "Python"},
+            "languages": {"totalSize": 10, "edges": [{"size": 10, "node": {"name": "Python"}}]},
+            "repositoryTopics": {"nodes": []}
+          }
+        ]
+      }
+    },
+    "x0": {
+      "name": "difference", "nameWithOwner": "babbage/difference", "isFork": false, "stargazerCount": 900,
+      "createdAt": "2022-02-02T00:00:00Z", "pushedAt": "2026-08-01T00:00:00Z",
+      "description": "Difference engine",
+      "primaryLanguage": {"name": "C"},
+      "languages": {"totalSize": 400, "edges": [{"size": 400, "node": {"name": "C"}}]},
+      "repositoryTopics": {"nodes": []}
+    },
+    "x1": {
+      "name": "engine", "nameWithOwner": "ada/engine", "isFork": false, "stargazerCount": 120,
+      "createdAt": "2024-03-01T10:00:00Z", "pushedAt": "2026-09-25T08:30:00Z",
+      "description": "Analytical engine & friends",
+      "primaryLanguage": {"name": "Python"},
+      "languages": {"totalSize": 1000, "edges": [
+        {"size": 800, "node": {"name": "Python"}},
+        {"size": 200, "node": {"name": "Shell"}}
+      ]},
+      "repositoryTopics": {"nodes": [{"topic": {"name": "math"}}, {"topic": {"name": "engines"}}]}
+    },
+    "x2": null
+  }
+}

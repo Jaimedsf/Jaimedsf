@@ -4,13 +4,11 @@ import copy
 
 import pytest
 
-from generator.config import validate_config
-from generator.svg_builder import SVGBuilder
 
 
 @pytest.fixture
 def sample_config():
-    """A valid config dict with 3 galaxy_arms and 2 projects."""
+    """A valid config in the shape version 1 documented: three arms with colours, the nine theme colours."""
     return {
         "username": "galaxy-dev",
         "profile": {
@@ -52,34 +50,6 @@ def sample_config():
 
 
 @pytest.fixture
-def sample_stats():
-    """Realistic stats dict."""
-    return {"commits": 1847, "stars": 342, "prs": 156, "issues": 89, "repos": 42}
-
-
-@pytest.fixture
-def sample_languages():
-    """Language byte counts."""
-    return {
-        "Python": 450000,
-        "TypeScript": 380000,
-        "JavaScript": 120000,
-        "Go": 95000,
-        "Rust": 45000,
-        "Shell": 30000,
-        "Dockerfile": 15000,
-        "CSS": 10000,
-    }
-
-
-@pytest.fixture
 def cfg(sample_config):
     """Return a deep copy of sample_config for mutation-safe tests."""
     return copy.deepcopy(sample_config)
-
-
-@pytest.fixture
-def svg_builder(sample_config, sample_stats, sample_languages):
-    """Create an SVGBuilder from validated sample fixtures."""
-    config = validate_config(copy.deepcopy(sample_config))
-    return SVGBuilder(config, sample_stats, sample_languages)
