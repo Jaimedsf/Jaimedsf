@@ -113,8 +113,10 @@ def test_flow_is_one_class_with_exact_keyframes_for_a_sixty_degree_step():
     geo, mo, _defs, body = make_dust()
     frames = re.search(r"@keyframes flow\{(.*?\})\}", mo.css()).group(1)
     assert body.count('class="flow"') == 6
-    assert f"100%{{transform:rotate(60deg) scale({num(geo.k, 4)})}}" in frames
-    assert frames.count("rotate(") == 5                        # 0, 15, 30, 45 and 60 degrees
+    # five frames: 0, 15, 30, 45 and 60 degrees, each with the scale the spiral has grown by at that angle
+    assert frames == "".join(
+        f"{25 * q}%{{transform:rotate({15 * q}deg) scale({num(geo.k ** (q / 4), 4)})}}" for q in range(5))
+    assert frames.startswith("0%{transform:rotate(0deg) scale(1)}")
 
 
 def test_the_bulge_swirls():
@@ -245,7 +247,7 @@ def test_unnamed_arms_of_an_unmatched_galaxy_have_a_fixed_length():
 def test_every_star_is_inside_the_frame(mobile):
     model = demo_model()
     geo = Geometry(mobile, len(model.arms))
-    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    positions = place_stars(model, geo, "galaxy-dev")
     assert set(positions) == set(model.order)
     assert all(0 <= x <= geo.width and 0 <= y <= geo.height for x, y in positions.values())
 
@@ -253,7 +255,7 @@ def test_every_star_is_inside_the_frame(mobile):
 def test_stars_on_an_arm_sit_on_its_curve_further_out_the_newer_they_are():
     model = demo_model()
     geo = Geometry(False, len(model.arms))
-    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    positions = place_stars(model, geo, "galaxy-dev")
     for index, arm in enumerate(model.arms):
         radii = [distance(positions[r.key], (geo.cx, geo.cy)) for r in arm.repos]
         assert radii == sorted(radii)
@@ -261,22 +263,64 @@ def test_stars_on_an_arm_sit_on_its_curve_further_out_the_newer_they_are():
             assert distance(positions[r.key], geo.point(index, radius)) < 0.01
 
 
+def test_stars_on_an_arm_are_evenly_spaced_from_the_core_to_the_arms_end():
+    day = date(2020, 1, 1)
+    arm = Arm("Backend", tuple(repo(f"r{i}", day + timedelta(days=30 * i)) for i in range(5)))
+    model = GalaxyModel(arms=(arm,), loose=(), labels=frozenset(), order=tuple(r.key for r in arm.repos))
+    geo = Geometry(False, 1)
+    positions = place_stars(model, geo, "x")
+    radii = [distance(positions[r.key], (geo.cx, geo.cy)) for r in arm.repos]
+    inner, outer = 196 * 0.26, 196 * 0.95
+    assert radii == pytest.approx([inner + (outer - inner) * (q + 0.5) / 5 for q in range(5)], abs=0.01)
+
+
 def test_stars_on_an_arm_stay_between_the_core_and_the_arms_cut():
     model = demo_model()
     geo = Geometry(False, len(model.arms))
-    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    positions = place_stars(model, geo, "galaxy-dev")
     for arm, cut in zip(model.arms, arm_cuts(model, geo)):
         for r in arm.repos:
             assert geo.radius * 0.26 <= distance(positions[r.key], (geo.cx, geo.cy)) <= cut * 0.95 + 0.01
 
 
-def test_loose_stars_keep_their_distance_from_every_other_star():
+def crowd_of_loose_stars(count=30):
+    day = date(2020, 1, 1)
+    loose = tuple(repo(f"loose-{i:02d}", day + timedelta(days=i)) for i in range(count))
+    return GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=loose, labels=frozenset(),
+                       order=tuple(r.key for r in loose))
+
+
+@pytest.mark.parametrize("seed", ["ada", "babbage", "galaxy-dev"])
+def test_loose_stars_keep_their_distance_from_every_other_star(seed):
+    model = crowd_of_loose_stars()
+    spots = list(place_stars(model, Geometry(False, 2), seed).values())
+    assert len(spots) == 30
+    closest = min(distance(a, b) for i, a in enumerate(spots) for b in spots[i + 1:])
+    assert closest >= 14          # thirty stars in the band: without retries some pair always ends up closer
+
+
+def test_a_loose_star_stays_where_it_is_when_the_galaxy_around_it_changes():
+    """Its place comes from its own name, not from how many random numbers were drawn before it."""
+    few, many = crowd_of_loose_stars(3), crowd_of_loose_stars(9)
+    geo = Geometry(False, 2)
+    before, after = place_stars(few, geo, "ada"), place_stars(many, geo, "ada")
+    assert all(before[key] == after[key] for key in before)
+    assert place_stars(few, geo, "ada") != place_stars(few, geo, "babbage")
+    # and a repository joining an arm does not shake the loose ones either
+    arm = Arm(None, (repo("on-the-arm", date(2019, 1, 1)), repo("also-on-the-arm", date(2019, 2, 1))))
+    with_arm = replace(few, arms=(arm, Arm(None, ())), order=tuple(r.key for r in arm.repos) + few.order)
+    joined = place_stars(with_arm, geo, "ada")
+    assert all(before[key] == joined[key] for key in before)
+
+
+def test_thinning_the_dust_does_not_move_a_single_star():
     model = demo_model()
-    geo = Geometry(False, len(model.arms))
-    positions = place_stars(model, geo, random.Random("galaxy-dev"))
-    for loose in model.loose:
-        others = [p for key, p in positions.items() if key != loose.key]
-        assert min(distance(positions[loose.key], p) for p in others) >= 14
+
+    def star_spots(keep):
+        svg = galaxy._compose(model, PROFILE, SKY, False, False, "galaxy-dev", keep)
+        return re.findall(r'<g transform="translate\(([\d.]+ [\d.]+)\)"><g><circle', svg)
+
+    assert len(star_spots(1.0)) == 15 and star_spots(1.0) == star_spots(0.4)
 
 
 def test_forty_repositories_on_one_arm_are_all_drawn_inside_its_cut():
@@ -284,7 +328,7 @@ def test_forty_repositories_on_one_arm_are_all_drawn_inside_its_cut():
     arm = Arm("Backend", tuple(repo(f"r{i:02d}", day + timedelta(days=30 * i)) for i in range(40)))
     model = GalaxyModel(arms=(arm,), loose=(), labels=frozenset(), order=tuple(r.key for r in arm.repos))
     geo = Geometry(False, 1)
-    positions = place_stars(model, geo, random.Random("x"))
+    positions = place_stars(model, geo, "x")
     assert len(positions) == 40
     assert max(distance(p, (geo.cx, geo.cy)) for p in positions.values()) <= 196 * 0.95 + 0.01
     assert all(0 <= x <= geo.width and 0 <= y <= geo.height for x, y in positions.values())
@@ -292,13 +336,14 @@ def test_forty_repositories_on_one_arm_are_all_drawn_inside_its_cut():
 
 def test_empty_galaxy_has_no_stars():
     model = GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
-    assert place_stars(model, Geometry(False, 2), random.Random("x")) == {}
+    assert place_stars(model, Geometry(False, 2), "x") == {}
 
 
 def test_same_seed_same_sky():
     model = demo_model()
     geo = Geometry(False, len(model.arms))
-    assert place_stars(model, geo, random.Random("s")) == place_stars(model, geo, random.Random("s"))
+    assert place_stars(model, geo, "s") == place_stars(model, geo, "s")
+    assert place_stars(model, geo, "s") != place_stars(model, geo, "t")
 
 
 # ── labels and arm names ─────────────────────────────────────────────────────
@@ -348,7 +393,7 @@ def test_labels_do_not_overlap_each_other():
 def test_every_label_box_stays_inside_the_frame(mobile):
     model = demo_model()
     geo = Geometry(mobile, len(model.arms))
-    positions = place_stars(model, geo, random.Random("galaxy-dev"))
+    positions = place_stars(model, geo, "galaxy-dev")
     stars = {r.key: r.stars for arm in model.arms for r in arm.repos}
     stars.update({r.key: r.stars for r in model.loose})
     placed = place_labels(sorted(model.labels), positions, stars, geo)
@@ -366,7 +411,8 @@ def test_a_label_in_a_corner_is_pushed_back_into_the_frame():
 def test_an_endless_repository_name_is_cut_in_the_label():
     _geo, placed = labels_for({"x" * 90: (500, 200)}, {"x" * 90: 2})
     box = placed["x" * 90][3]
-    assert box[2] <= galaxy.LABEL_MAX_WIDTH + 12
+    assert measure("x" * 90, 13.5, "medium") > 400                 # the whole name would be this wide
+    assert 150 <= box[2] - 8 <= 170                               # what is written fills the limit and stops there
 
 
 def test_each_named_arm_gets_a_path_for_its_name_and_unnamed_arms_get_none():
@@ -439,9 +485,13 @@ def test_arm_names_are_set_along_their_curves():
 
 
 def test_identity_is_never_animated():
-    runs = [run for run in text_runs(plate()) if run["text"] in ("NyxOrion",)]
+    svg = plate()
+    runs = [run for run in text_runs(svg) if run["text"] in ("NyxOrion",)]
     assert runs and runs[0]["size"] == pytest.approx(48)
-    assert re.search(r'<g transform="translate\(44 196\) scale\(.048\)" fill="#eef1f6"><use', plate())
+    # name, tagline and philosophy are the only straight lines in the light and italic styles
+    lines = re.findall(r'<g transform="translate\([\d. ]+\) scale\([\d.]+\)"([^>]*)><use href="#[li]', svg)
+    assert len(lines) == 3
+    assert all("class" not in attributes and "style" not in attributes for attributes in lines)
 
 
 def test_a_long_name_shrinks_to_fit_beside_the_galaxy_and_is_cut_if_it_must():
@@ -667,3 +717,68 @@ def test_a_label_moved_back_into_the_frame_never_lands_on_its_own_star():
         [name], {name: star_at}, {name: 0}, geo, obstacles=taken)[name]
     assert not any(left < x + w and x < left + width and top < y + h and y < top + height for x, y, w, h in taken)
     assert not (left - 3 < star_at[0] < left + width + 3 and top - 3 < star_at[1] < top + height + 3)
+
+
+
+# ── the entrance, star by star ───────────────────────────────────────────────
+
+def entrance(svg):
+    """(x y, delay) of every star that ignites on its own, in document order."""
+    return [(spot, float(delay)) for spot, delay in re.findall(
+        r'<g transform="translate\(([\d.]+ [\d.]+)\)"><g class="pop" style="animation-delay:([\d.]+)s">', svg)]
+
+
+def test_stars_ignite_in_the_order_their_repositories_were_created():
+    model = demo_model()
+    svg = plate(model=model)
+    geo = Geometry(False, len(model.arms))
+    positions = place_stars(model, geo, "galaxy-dev")
+    seen = entrance(svg)
+    assert [spot for spot, _delay in seen] == [f"{num(positions[key][0])} {num(positions[key][1])}" for key in model.order]
+    delays = [delay for _spot, delay in seen]
+    assert delays == sorted(delays) and delays[0] == pytest.approx(4.5) and delays[-1] == pytest.approx(6.4)
+    assert len(set(delays)) == 15                                 # one by one, not all at once
+
+
+def test_a_stars_name_appears_a_moment_after_the_star():
+    model = demo_model()
+    svg = plate(model=model)
+    positions = place_stars(model, Geometry(False, len(model.arms)), "galaxy-dev")
+    ignites = dict(entrance(svg))
+    names = re.findall(r'<g class="soft" style="animation-delay:([\d.]+)s"><rect [^>]*filter="url\(#lb\)"/>'
+                       r'<g transform="translate\(([-\d.]+) ([-\d.]+)\)', svg)
+    assert len(names) == 2
+    for key, (delay, _x, _y) in zip(sorted(model.labels, key=lambda k: -max(
+            r.stars for arm in model.arms for r in arm.repos if r.key == k)), names):
+        x, y = positions[key]
+        assert float(delay) == pytest.approx(ignites[f"{num(x)} {num(y)}"] + 0.35, abs=0.011)
+
+
+def test_the_core_ignites_before_the_galaxy_arrives():
+    svg = plate()
+    assert re.search(r'<circle class="ignite" r="98" fill="url\(#cg\)"/>', svg)
+    css = re.search(r"<style>(.*?)</style>", svg).group(1)
+    assert ".ignite{animation:ignite 1.9s ease-out 2.52s both}" in css
+    assert ".arrive{animation:arrive 1.2s ease-out 3.7s both}" in css
+
+
+def test_only_named_stars_and_the_eight_brightest_active_ones_have_a_breathing_halo():
+    model = big_model(arms=6)                                     # 48 stars, 10 of them pushed this month
+    svg = plate(model=model)
+    breathing = len(re.findall(r'<circle r="[\d.]+" fill="url\(#hn\)" class="tw"', svg))
+    active = len(re.findall(r'fill="url\(#hn\)"', svg))
+    named_and_active = sum(1 for arm in model.arms for r in arm.repos
+                           if r.key in model.labels and (date(2026, 9, 30) - r.pushed).days <= 30)
+    assert active == 10 and 0 < breathing <= 8 + named_and_active < active + 1
+    assert breathing == min(active, 8 + named_and_active) or breathing == 8
+
+
+@pytest.mark.parametrize("profile", [
+    {"name": "\x7f"}, {"name": "Nyx", "tagline": "\x00\x1f"}, {"name": "Nyx", "philosophy": "\x7f \x01"},
+    {"name": "   "}, {"name": 42, "tagline": None, "philosophy": ["a", "list"]},
+])
+def test_identity_text_that_is_empty_once_cleaned_draws_nothing_and_breaks_nothing(profile):
+    for mobile in (False, True):
+        svg = plate(profile=profile, mobile=mobile)
+        ET.fromstring(svg)
+        rules.svg_is_sound(svg)

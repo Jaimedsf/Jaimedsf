@@ -24,6 +24,7 @@ FONTS = Path(__file__).resolve().parent / "fonts"
 STYLES = ("light", "regular", "medium", "italic")
 FALLBACK_FAMILY = "Georgia, 'Times New Roman', serif"
 ELLIPSIS = "…"
+CUT_FILL = 2 / 3          # a cut line shorter than this share of the width is filled through the next word
 
 # A fallback string is drawn in a system serif, which runs wider than Spectral.
 FALLBACK_MARGIN = 1.15
@@ -110,8 +111,10 @@ def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 
          balance: bool = False) -> list[str]:
     """Break text into lines no wider than max_width; the last line ends in an ellipsis if text was cut.
 
-    balance=True evens out a two-line result instead of leaving a lone word on
-    the second line.
+    A cut falls between words, unless that would leave the line less than
+    two thirds full: then it goes on into the next word, so a long name keeps
+    as many of its letters as fit. balance=True evens out a two-line result
+    instead of leaving a lone word on the second line.
     """
     words = clean(text).split()
     if not words:
@@ -141,12 +144,14 @@ def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 
     lines.append(current)
     if balance and len(lines) == 2 and max_lines >= 2:
         lines = _balanced(words, size, style, max_width) or lines
-    cut = len(lines) > max_lines
-    lines = lines[:max_lines]
-    for i, line in enumerate(lines):
-        if measure(line, size, style) > max_width or (cut and i == len(lines) - 1):
-            lines[i] = _ellipsize(line, size, style, max_width)
-    return lines
+    if len(lines) > max_lines:
+        between_words = _ellipsize(lines[max_lines - 1], size, style, max_width)
+        if measure(between_words, size, style) >= max_width * CUT_FILL:
+            lines[max_lines - 1:] = [between_words]
+        else:
+            lines[max_lines - 1:] = [_ellipsize(" ".join(lines[max_lines - 1:]), size, style, max_width)]
+    return [line if measure(line, size, style) <= max_width else _ellipsize(line, size, style, max_width)
+            for line in lines]
 
 
 def _halo(halo, scale: float = 1.0) -> str:

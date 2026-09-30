@@ -230,12 +230,14 @@ def arm_cuts(model, geo: Geometry) -> list:
     return [geo.radius * (0.5 + 0.5 * len(arm.repos) / most) for arm in model.arms]
 
 
-def place_stars(model, geo: Geometry, rng) -> dict:
+def place_stars(model, geo: Geometry, seed: str) -> dict:
     """{repository key: (x, y)} in the frame's coordinates.
 
     On an arm, repositories run from the oldest near the core to the newest
     near the arm's end, evenly spaced in radius. Those without an arm float
     between the arms, each tried a dozen times for a spot clear of the others.
+    A loose star's spot is drawn from its own name and the seed, so it does
+    not move when something else in the galaxy changes.
     """
     positions = {}
     for index, (arm, cut) in enumerate(zip(model.arms, arm_cuts(model, geo))):
@@ -243,7 +245,7 @@ def place_stars(model, geo: Geometry, rng) -> dict:
         for q, repo in enumerate(arm.repos):
             positions[repo.key] = geo.point(index, inner + (outer - inner) * (q + 0.5) / len(arm.repos))
     for repo in model.loose:
-        spot = None
+        spot, rng = None, random.Random(f"star:{seed}:{repo.key}")
         for _ in range(12):
             a, r = rng.uniform(0, 2 * math.pi), geo.radius * rng.uniform(*LOOSE_BAND)
             spot = (geo.cx + r * math.cos(a), geo.cy + r * math.sin(a))
@@ -503,7 +505,7 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
 
     sky = _sky(geo, theme, rng, mo)
     dust_defs, dust_body = dust(geo, cuts, theme, rng, mo, keep)
-    positions = place_stars(model, geo, rng)
+    positions = place_stars(model, geo, seed)
     ids = [1000]                                           # bloom path ids of the actors, clear of the dust's
     actors = _actors(geo, cuts, theme, rng, mo, ids, keep) if motion else ""
 

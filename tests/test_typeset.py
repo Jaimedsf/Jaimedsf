@@ -132,6 +132,39 @@ def test_wrap_cuts_with_an_ellipsis_when_lines_run_out():
     assert len(lines) == 2 and lines[-1].endswith("…")
 
 
+def test_a_cut_at_a_word_that_would_waste_the_line_goes_on_into_the_next_word():
+    name = "Maximiliana Wolfeschlegelsteinhausenbergerdorff the Third"
+    line = wrap(name, 30, "light", 380, max_lines=1)[0]
+    assert line.startswith("Maximiliana Wolfeschl") and line.endswith("…")
+    assert 380 - 30 < measure(line, 30, "light") <= 380
+
+
+def test_a_cut_near_the_end_of_the_line_stays_between_words():
+    lines = wrap(LONG, 14.5, "italic", 300, max_lines=2)
+    kept = " ".join(lines)[:-1]
+    assert lines[-1].endswith("…") and clean_spaces(LONG).startswith(kept)
+    assert clean_spaces(LONG)[len(kept)] == " "                   # the text goes on with a new word
+    assert measure(lines[-1], 14.5, "italic") > 300 * 2 / 3
+
+
+def test_a_cut_line_is_never_left_less_than_two_thirds_full():
+    for width in range(80, 320, 7):
+        for text in (LONG, "Maximiliana Wolfeschlegelsteinhausenbergerdorff the Third", "one two " + "w" * 60):
+            line = wrap(text, 14.5, "italic", width, max_lines=1)[0]
+            assert line.endswith("…")
+            assert width * 2 / 3 - 14.5 < measure(line, 14.5, "italic") <= width
+
+
+def test_a_cut_never_leaves_a_space_before_the_ellipsis():
+    for width in range(60, 300, 7):
+        line = wrap(LONG, 14.5, "italic", width, max_lines=1)[0]
+        assert not line.endswith(" …") and measure(line, 14.5, "italic") <= width
+
+
+def clean_spaces(text):
+    return " ".join(text.split())
+
+
 def test_wrap_cuts_a_single_word_that_is_too_wide():
     lines = wrap("a" * 80, 23, "medium", 200, max_lines=1)
     assert len(lines) == 1 and lines[0].endswith("…")
