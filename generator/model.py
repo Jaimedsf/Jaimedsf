@@ -13,6 +13,7 @@ from generator.data import Repo, Snapshot
 ALIASES = {"docker": "dockerfile", "vue.js": "vue", "node.js": "javascript"}
 MIN_SHARE = 0.15          # a repository joins an arm when its languages are at least this much of its code
 STAR_LIMIT = 48           # repositories drawn in the galaxy
+LABEL_LIMIT = 4           # stars that get their name written next to them
 FEATURED_LIMIT = 3
 NOW_DAYS, YEAR_DAYS = 30, 365
 
@@ -35,11 +36,16 @@ def _featured_keys(config: dict) -> set:
 
 
 def visible_repos(snap: Snapshot, config: dict, limit: int = STAR_LIMIT) -> list:
-    """The repositories that become stars: no forks, no profile repository; featured ones first."""
+    """The repositories that become stars, featured ones first.
+
+    Forks are left out unless the user features one, and so is the profile
+    repository: the workflow that regenerates these images keeps it "active".
+    """
     login = snap.login.lower()
     wanted = _featured_keys(config)
     repos = [r for r in snap.repos
-             if not r.is_fork and not (r.owner.lower() == login and r.name.lower() == login)]
+             if (not r.is_fork or repo_key(r.name) in wanted)
+             and not (r.owner.lower() == login and r.name.lower() == login)]
     repos.sort(key=lambda r: (repo_key(r.name) not in wanted, -r.stars, -r.pushed.toordinal(), r.name.lower()))
     return repos[:limit]
 
@@ -126,3 +132,47 @@ def weekly_series(snap: Snapshot) -> Optional[tuple]:
     values = [count for _day, count in snap.weeks]
     total = snap.total_contributions if snap.total_contributions is not None else sum(values)
     return values, dates, total, values.index(max(values))
+
+
+@dataclass(frozen=True)
+class Arm:
+    name: Optional[str]       # None for the unnamed arms of a galaxy with no matched repository
+    repos: tuple              # Repo, oldest first
+
+
+@dataclass(frozen=True)
+class GalaxyModel:
+    arms: tuple               # Arm, in config order; only focus areas that have repositories
+    loose: tuple              # Repo on no arm
+    labels: frozenset         # names of the repositories that get a label
+    order: tuple              # every drawn repository's name, oldest first (the entrance order)
+
+
+def galaxy(snap: Snapshot, config: dict) -> GalaxyModel:
+    """What the galaxy is made of: which arms exist, which star sits on which, and who is named."""
+    repos = visible_repos(snap, config)
+    arms_config = config.get("galaxy_arms", [])
+    assigned = assign_arms(repos, arms_config, config.get("projects", []))
+
+    def oldest_first(items):
+        return tuple(sorted(items, key=lambda r: (r.created, r.name.lower())))
+
+    arms = tuple(
+        Arm(arm["name"], oldest_first(r for r in repos if assigned[r.name] == index))
+        for index, arm in enumerate(arms_config)
+        if any(assigned[r.name] == index for r in repos)
+    )
+    on_arm = {r.name for arm in arms for r in arm.repos}
+    wanted = _featured_keys(config)
+    named = [r.name for r in repos if repo_key(r.name) in wanted]
+    if repos:
+        brightest = max(repos, key=lambda r: (r.stars, r.pushed)).name
+        if brightest not in named:
+            named.append(brightest)
+    return GalaxyModel(
+        arms=arms or (Arm(None, ()), Arm(None, ())),
+        loose=oldest_first(r for r in repos if r.name not in on_arm),
+        labels=frozenset(named[:LABEL_LIMIT]),
+        order=tuple(r.name for r in oldest_first(repos)),
+    )
+

@@ -202,3 +202,77 @@ def test_empty_profile_yields_empty_models():
     assert featured(snap, {"projects": [{"repo": "ada/ghost"}]}) == []
     assert language_shares(snap, [], 8) == []
     assert assign_arms([], ARMS, []) == {}
+
+
+# ── the galaxy model ─────────────────────────────────────────────────────────
+
+import yaml
+
+from generator.config import validate_config
+from generator.data import load_demo
+from generator.model import Arm, GalaxyModel, galaxy
+
+
+def demo_config():
+    with open("config.example.yml", encoding="utf-8") as handle:
+        return validate_config(yaml.safe_load(handle))
+
+
+def test_only_focus_areas_with_repositories_become_arms_in_config_order():
+    model = galaxy(load_demo(), demo_config())
+    assert [arm.name for arm in model.arms] == ["Frontend", "Backend", "DevOps"]
+    assert [r.name for r in model.arms[2].repos] == ["comet-deploy"]
+
+
+def test_repositories_on_an_arm_are_in_order_of_creation():
+    model = galaxy(load_demo(), demo_config())
+    assert [r.name for r in model.arms[0].repos] == [
+        "dark-matter-css", "nebula-ui", "quasar-charts", "star-map", "telescope-action"]
+
+
+def test_repositories_without_an_arm_are_loose():
+    model = galaxy(load_demo(), demo_config())
+    assert sorted(r.name for r in model.loose) == ["aphelion", "nyx-dotfiles", "orbit-cli", "parallax-notes", "wormhole"]
+
+
+def test_a_focus_area_without_repositories_is_not_an_arm():
+    config = demo_config()
+    config["galaxy_arms"].append({"name": "Hardware", "items": ["Verilog"]})
+    assert "Hardware" not in [arm.name for arm in galaxy(load_demo(), config).arms]
+
+
+def test_labels_are_the_featured_projects_plus_the_brightest_repository():
+    config = demo_config()
+    config["projects"] = [{"repo": "galaxy-dev/lightcurve"}]
+    assert galaxy(load_demo(), config).labels == frozenset({"lightcurve", "nebula-ui"})
+
+
+def test_never_more_than_four_labels():
+    config = demo_config()
+    config["projects"] = [{"repo": name} for name in ("nebula-ui", "stargate-api", "orbit-cli", "lightcurve", "wormhole")]
+    assert len(galaxy(load_demo(), config).labels) == 4
+
+
+def test_entrance_order_is_the_order_of_creation_across_the_whole_galaxy():
+    model = galaxy(load_demo(), demo_config())
+    assert model.order[0] == "nyx-dotfiles" and model.order[-1] == "aphelion"
+    assert len(model.order) == 15
+
+
+def test_when_no_repository_matches_an_arm_there_are_two_unnamed_arms_and_everything_is_loose():
+    config = demo_config()
+    config["galaxy_arms"] = [{"name": "Hardware", "items": ["Verilog"]}]
+    config["projects"] = []
+    model = galaxy(load_demo(), config)
+    assert model.arms == (Arm(None, ()), Arm(None, ()))
+    assert len(model.loose) == 15
+
+
+def test_empty_profile_is_two_unnamed_arms_and_nothing_else():
+    model = galaxy(snapshot([]), {"projects": [], "galaxy_arms": ARMS})
+    assert model == GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
+
+
+def test_a_featured_fork_is_a_star_even_though_other_forks_are_not():
+    snap = snapshot([make("mine", 5), make("fork-a", 9, fork=True), make("fork-b", 9, fork=True)])
+    assert [r.name for r in visible_repos(snap, {"projects": [{"repo": "ada/fork-a"}]})] == ["fork-a", "mine"]
