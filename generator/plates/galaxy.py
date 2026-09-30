@@ -287,8 +287,9 @@ def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obsta
     what is written for it, when that is not the name itself.
 
     Each label tries a ring of spots around its star: to the right and to the
-    left, level with it or up to three lines above or below, and centred over
-    or under it. A spot that would leave the frame is moved inside first.
+    left, level with it or up to seven lines above or below, and centred over
+    or under it. The far lines are only reached when the near ones are taken:
+    that is what lets four named neighbours each find a place. A spot that would leave the frame is moved inside first.
     The label takes the spot that sits on no other label and no obstacle;
     among those, the one that crosses least of what it should avoid and
     covers the fewest stars; among those, the one nearest the star's right.
@@ -305,7 +306,7 @@ def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obsta
         width = measure(label_text((texts or {}).get(name, name), geo), size, LABEL_STYLE)
         reach = spike_half(stars.get(name, 0)) + 5
         spots = [(side, y + 4.5 + dy, abs(dy) / 15 + (0 if side == "start" else 0.5))
-                 for dy in (0, -15, 15, -30, 30, -45, 45) for side in ("start", "end")]
+                 for dy in (0, -15, 15, -30, 30, -45, 45, -60, 60, -75, 75, -90, 90, -105, 105) for side in ("start", "end")]
         spots += [("middle", y - reach - 1, 4.0), ("middle", y + reach + ascent - 3, 4.5)]
         best = None
         for anchor, baseline, liking in spots:

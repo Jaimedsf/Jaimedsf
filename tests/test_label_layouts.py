@@ -6,6 +6,7 @@ repositories and count the layouts where a star's name runs into another
 name, into the identity column or into a focus area's name.
 """
 
+import math
 import random
 import re
 from collections import Counter
@@ -29,6 +30,7 @@ NAMES = ["awesome-kubernetes-operators", "dotfiles", "advent-of-code-2025", "gal
          "spring-boot-microservices", "leetcode-solutions"]
 AREAS = ["Frontend", "Backend", "DevOps", "Machine Learning", "Mobile", "Data Engineering"]
 TRIALS = 40
+SEEDS = (99, 107)                 # two unrelated streams, so the numbers below are not fitted to one
 
 
 def random_model(rng, arm_count):
@@ -64,10 +66,11 @@ def arm_letters(svg):
 
 @pytest.fixture(scope="module")
 def collisions():
-    """{(arms, width, kind): layouts with that collision} over TRIALS random galaxies per number of arms."""
-    rng, found = random.Random(99), Counter()
-    for arm_count in (2, 3, 4, 5, 6):
-        for trial in range(TRIALS):
+    """{(arms, width, kind): layouts with that collision}, over TRIALS random galaxies per seed and number of arms."""
+    found = Counter()
+    for rng, arm_count, trial in ((rng, arm_count, trial) for rng in map(random.Random, SEEDS)
+                                  for arm_count in (2, 3, 4, 5, 6) for trial in range(TRIALS)):
+        if True:
             model = random_model(rng, arm_count)
             for mobile in (False, True):
                 svg = galaxy.render(model, PROFILE, SKY, mobile=mobile, motion=False, seed=f"s{trial}")
@@ -91,24 +94,57 @@ def total(collisions, kind, arms=(2, 3, 4, 5, 6)):
 
 
 def test_star_names_never_run_into_the_name_tagline_or_philosophy(collisions):
-    assert total(collisions, "label over identity") == 0
+    assert total(collisions, "label over identity") == 0                    # of 800 layouts
 
 
 def test_star_names_never_run_into_each_other(collisions):
-    assert total(collisions, "label over label") == 0                 # of 400 layouts
+    assert total(collisions, "label over label") == 0
 
 
 def test_with_up_to_three_arms_star_names_keep_off_the_arm_names(collisions):
-    assert total(collisions, "label over arm name", arms=(2, 3)) == 0       # of 160 layouts
+    assert total(collisions, "label over arm name", arms=(2, 3)) == 0       # of 320 layouts
 
 
-def test_with_many_arms_star_names_rarely_cross_an_arm_name(collisions):
-    assert total(collisions, "label over arm name", arms=(4, 5, 6)) <= 8    # of 240 layouts; 5 when written
+def test_with_many_arms_star_names_hardly_ever_cross_an_arm_name(collisions):
+    """Over twenty other seeds this was 3 layouts in 4,800; a name that does cross is drawn on top, whole."""
+    assert total(collisions, "label over arm name", arms=(4, 5, 6)) <= 2    # of 480 layouts
+
+
+# ── the hard case: four named stars side by side ─────────────────────────────
+
+def cluster(rng, mobile):
+    """Four named stars within some 60 pixels of each other, with long names, somewhere in the galaxy."""
+    geo = galaxy.Geometry(mobile, 3)
+    angle, radius = rng.uniform(0, 2 * math.pi), rng.uniform(0.2, 0.95) * geo.radius
+    cx, cy = geo.cx + radius * math.cos(angle), geo.cy + radius * math.sin(angle)
+    names, positions = rng.sample(NAMES, 4), {}
+    for name in names:
+        while True:
+            spot = (cx + rng.uniform(-45, 45), cy + rng.uniform(-45, 45))
+            if all(math.hypot(spot[0] - x, spot[1] - y) >= 14 for x, y in positions.values()):
+                positions[name] = spot
+                break
+    stars = {name: int(1.35 ** rng.randint(0, 25)) for name in names}
+    identity = [] if mobile else [(44, 155, 390, 55), (45, 211, 380, 23), (45, 262, 320, 17), (45, 281, 320, 17)]
+    boxes = [placed[3] for placed in galaxy.place_labels(names, positions, stars, geo, identity).values()]
+    return geo, boxes, identity
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_four_named_neighbours_with_long_names_each_find_a_place_of_their_own(mobile):
+    rng = random.Random(5)
+    for _ in range(600):
+        geo, boxes, identity = cluster(rng, mobile)
+        assert len(boxes) == 4
+        assert not any(overlap(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1:])
+        assert not any(overlap(a, b) for a in boxes for b in identity)
+        assert all(b[0] >= 0 and b[1] >= 0 and b[0] + b[2] <= geo.width and b[1] + b[3] <= geo.height for b in boxes)
 
 
 def test_a_star_name_is_always_drawn_over_an_arm_name_never_under_it():
     """Where they do meet, the star's name stays whole: arm names are drawn first."""
     svg = galaxy.render(random_model(random.Random(5), 6), PROFILE, SKY, motion=False, seed="s")
     first_label = svg.index('filter="url(#lb)"')
+    first_star = re.search(r'<circle r="[\d.]+" fill="(?:url\(#h[ny]\)|#[0-9a-f]{6}" fill-opacity=".09")', svg).start()
     last_arm_letter = max(match.start() for match in re.finditer(r'<use href="#i[0-9a-f]+" transform="translate', svg))
-    assert last_arm_letter < first_label
+    assert last_arm_letter < first_star < first_label            # arm names, then stars, then the stars' names
