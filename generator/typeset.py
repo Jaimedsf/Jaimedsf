@@ -92,8 +92,27 @@ def _ellipsize(line: str, size: float, style: str, max_width: float) -> str:
     return line + ELLIPSIS
 
 
-def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 2) -> list[str]:
-    """Break text into lines no wider than max_width; the last line ends in an ellipsis if text was cut."""
+def _balanced(words: list, size: float, style: str, max_width: float) -> list:
+    """The two-line break that leaves the lines closest in width, preferring to break after punctuation."""
+    best = None
+    for cut in range(1, len(words)):
+        first, second = " ".join(words[:cut]), " ".join(words[cut:])
+        w1, w2 = measure(first, size, style), measure(second, size, style)
+        if w1 > max_width or w2 > max_width:
+            continue
+        score = abs(w1 - w2) - (max_width * 0.25 if first[-1] in ",;:.!?" else 0)
+        if best is None or score < best[0]:
+            best = (score, [first, second])
+    return best[1] if best else []
+
+
+def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 2,
+         balance: bool = False) -> list[str]:
+    """Break text into lines no wider than max_width; the last line ends in an ellipsis if text was cut.
+
+    balance=True evens out a two-line result instead of leaving a lone word on
+    the second line.
+    """
     words = clean(text).split()
     if not words:
         return []
@@ -120,6 +139,8 @@ def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 
             lines.append(current)
             current = word
     lines.append(current)
+    if balance and len(lines) == 2 and max_lines >= 2:
+        lines = _balanced(words, size, style, max_width) or lines
     cut = len(lines) > max_lines
     lines = lines[:max_lines]
     for i, line in enumerate(lines):

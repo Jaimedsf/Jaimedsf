@@ -184,3 +184,15 @@ def test_comet_head_starts_at_the_beginning_of_the_path_and_ends_at_its_end():
     period = dash + gap
     assert a % period == pytest.approx(0, abs=1e-6) or a % period == pytest.approx(period, abs=1e-6)
     assert a - b == pytest.approx(1)
+
+
+def test_star_spikes_can_be_left_still():
+    assert 'class="spk"' in star(9, "year", SKY, Motion())
+    assert "spk" not in star(9, "year", SKY, Motion(), shimmer=False)
+    assert "tw" not in star(9, "now", SKY, Motion(), shimmer=False)
+
+
+def test_dots_inside_a_group_that_carries_the_stroke_attributes_need_not_repeat_them():
+    bare = dots([(1, 2), (3, 4)], 1.7, "#a9c7ff", 0.9, standalone=False)
+    assert "stroke-linecap" not in bare and 'fill="none"' not in bare
+    assert 'stroke="#a9c7ff"' in bare and 'stroke-width="1.7"' in bare and 'stroke-opacity=".9"' in bare

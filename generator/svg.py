@@ -43,33 +43,40 @@ _DOT = "h.01"
 _DOT_LENGTH = 0.01
 
 
-def dots_d(points) -> str:
+def dots_d(points, places: int = 1) -> str:
     """Path data for one dot per point, in relative moves so the numbers stay short."""
     out, cx, cy = [], None, None
     for x, y in points:
         if cx is None:
-            sx, sy = num(x), num(y)
+            sx, sy = num(x, places), num(y, places)
             out.append(f"M{sx} {sy}{_DOT}")
             cx, cy = float(sx), float(sy)
         else:
-            dx, dy = num(x - cx), num(y - cy)
+            dx, dy = num(x - cx, places), num(y - cy, places)
             out.append(f"m{dx} {dy}{_DOT}")
             cx, cy = cx + float(dx), cy + float(dy)
         cx += _DOT_LENGTH
     return "".join(out)
 
 
-def dots(points, width: float, color: str, opacity: float = 1.0) -> str:
+PARTICLE_GROUP = 'stroke-linecap="round" fill="none"'    # what a group of bare dots() must carry
+
+
+def dots(points, width: float, color: str, opacity: float = 1.0, standalone: bool = True,
+         places: int = 1) -> str:
     """Round particles of one size and colour as a single stroked path.
 
     Transparency is stroke-opacity, never opacity: group opacity forces an
     offscreen layer per path and drops the frame rate by two thirds.
+    standalone=False leaves out the cap and fill attributes, for paths inside
+    a group that already carries PARTICLE_GROUP. places is the number of
+    decimals kept in the coordinates.
     """
     if not points:
         return ""
     alpha = "" if opacity >= 1 else f' stroke-opacity="{num(opacity, 2)}"'
-    return (f'<path d="{dots_d(points)}" stroke="{color}" stroke-width="{num(width, 2)}"{alpha} '
-            f'stroke-linecap="round" fill="none"/>')
+    own = f" {PARTICLE_GROUP}" if standalone else ""
+    return f'<path d="{dots_d(points, places)}" stroke="{color}" stroke-width="{num(width, 2)}"{alpha}{own}/>'
 
 
 # ── the repository star ──────────────────────────────────────────────────────
@@ -108,10 +115,12 @@ def star_defs(theme) -> str:
     return "".join(out)
 
 
-def star(stars: int, state: str, theme, motion, phase: float = 0.0, scale: float = 1.0) -> str:
+def star(stars: int, state: str, theme, motion, phase: float = 0.0, scale: float = 1.0,
+         shimmer: bool = True) -> str:
     """A repository star drawn at the origin.
 
     scale shrinks the bloom and the spikes (not the core) where space is tight.
+    shimmer=False leaves the halo and the spikes still, for crowded plates.
 
     Brighter means a wider bloom and longer spikes, not a bigger disc: the core
     stays small, as in a photograph of a real star. state is "now", "year" or
@@ -125,9 +134,9 @@ def star(stars: int, state: str, theme, motion, phase: float = 0.0, scale: float
     key = "n" if state == "now" else "y"
     glow, half, width = core * (4.4 + 1.3 * g) * scale, spike_half(stars) * scale, (1.1 + 0.45 * g) * scale
     delay = -phase if phase else None
-    pulse = motion.cls("tw", delay=delay) if state == "now" else ""
+    pulse = motion.cls("tw", delay=delay) if state == "now" and shimmer else ""
     return (f'<circle r="{num(glow)}" fill="url(#h{key})"{pulse}/>'
-            f'<g{motion.cls("spk", delay=delay)}>'
+            f'<g{motion.cls("spk", delay=delay) if shimmer else ""}>'
             f'<path fill="url(#s{key})" d="M{num(-half)} 0Q0 {num(-width, 2)} {num(half)} 0Q0 {num(width, 2)} {num(-half)} 0Z"/>'
             f'<path fill="url(#v{key})" d="M0 {num(-half)}Q{num(width, 2)} 0 0 {num(half)}Q{num(-width, 2)} 0 0 {num(-half)}Z"/>'
             f'</g><circle r="{num(core)}" fill="url(#c{key})"/>')

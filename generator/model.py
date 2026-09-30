@@ -146,6 +146,7 @@ class GalaxyModel:
     loose: tuple              # Repo on no arm
     labels: frozenset         # names of the repositories that get a label
     order: tuple              # every drawn repository's name, oldest first (the entrance order)
+    today: Optional[date] = None   # the day a star's state is judged against
 
 
 def galaxy(snap: Snapshot, config: dict) -> GalaxyModel:
@@ -174,5 +175,6 @@ def galaxy(snap: Snapshot, config: dict) -> GalaxyModel:
         loose=oldest_first(r for r in repos if r.name not in on_arm),
         labels=frozenset(named[:LABEL_LIMIT]),
         order=tuple(r.name for r in oldest_first(repos)),
+        today=snap.today,
     )
 

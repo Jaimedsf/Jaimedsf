@@ -15,9 +15,12 @@ symmetry requires it, and it keeps the image coherent under any zoom.
 from __future__ import annotations
 
 import math
+import random
 
-from generator.svg import dots, dots_d, num, spike_half
-from generator.typeset import font, measure, wrap
+from generator.model import recency
+from generator.motion import Motion
+from generator.svg import PARTICLE_GROUP, dots, dots_d, frame, num, spike_half, star, star_defs
+from generator.typeset import Typesetter, font, measure, wrap
 
 PHI = math.pi / 3                 # tile step along an arm
 R0 = 20.0                         # radius where the spiral starts
@@ -29,9 +32,13 @@ LAYERS = ((95, 22, 0.0, 1.0, 1.0), (75, 29, 0.0, 0.6, 1.8), (75, 25, 0.4, 1.0, 1
 # diameter as a fraction of the tile's radius, share of the particles, opacity, bloom
 SIZES = ((0.0085, 0.55, 0.9, False), (0.014, 0.28, 1.0, False), (0.022, 0.13, 1.0, True), (0.034, 0.04, 1.0, True))
 BULGE_SIZES = (1.0, 1.7, 2.5, 3.6)                     # pixels; the bulge does not flow, so it has no tile
+BULGE = 320                       # particles in the bulge
 BLOOM = ((3.3, 0.035), (2.6, 0.07), (2.0, 0.13), (1.5, 0.26))   # width multiplier, opacity
 OFF_AXIS = 0.085                  # further than this from the arm's axis, a particle is always small
 CLUSTERS = 8
+TILE_VARIANTS = 3                 # distinct particle patterns; further arms reuse them, out of step
+MAX_FLOWING = 18                  # flowing layers in the whole galaxy; with many arms, each gets fewer
+FULL_ARMS = 4                     # a galaxy holds the dust of this many whole arms; more arms share it
 
 
 class Geometry:
@@ -76,24 +83,35 @@ def _pick(rng, table):
     return table[-1][0]
 
 
-def _field(buckets: dict, glow: float, ids: list) -> str:
-    """Particles grouped by colour and size. Bright ones share one coordinate list with their bloom."""
-    out = []
+def _field(buckets: dict, glow: float, ids: list, bloom_on: bool = True, places: int = 1) -> str:
+    """Particles grouped by colour and size, to go inside a group that carries svg.PARTICLE_GROUP.
+
+    Bright ones of one size are defined once, in all their colours, and drawn
+    five times: four widening, fading layers of bloom and the particle itself.
+    The width and the opacity of each layer are set on its <use> and inherited
+    by the paths. bloom_on=False draws every particle plain; places is the
+    number of decimals kept in the coordinates.
+    """
+    out, bright = [], {}
     for (colour, width, opacity, bloom), points in sorted(buckets.items(), key=lambda kv: (kv[0][1], kv[0][0])):
-        if not bloom:
-            out.append(dots(points, width, colour, opacity))
-            continue
+        if bloom and bloom_on:
+            bright.setdefault(width, []).append(f'<path d="{dots_d(points, places)}" stroke="{colour}"/>')
+        else:
+            out.append(dots(points, width, colour, opacity, standalone=False, places=places))
+    for width, paths in sorted(bright.items()):
         ids[0] += 1
-        out.append(f'<defs><path id="d{ids[0]}" d="{dots_d(points)}"/></defs>'
-                   f'<g stroke="{colour}" stroke-linecap="round" fill="none">'
-                   + "".join(f'<use href="#d{ids[0]}" stroke-width="{num(width * m, 2)}" stroke-opacity="{num(a * glow, 3)}"/>'
-                             for m, a in BLOOM)
-                   + f'<use href="#d{ids[0]}" stroke-width="{num(width, 2)}"/></g>')
+        layer = f'<use href="#d{ids[0]}" stroke-width='
+        out.append(f'<defs><g id="d{ids[0]}">{"".join(paths)}</g></defs>'
+                   + "".join(f'{layer}"{num(width * m, 2)}" stroke-opacity="{num(a * glow, 3)}"/>' for m, a in BLOOM)
+                   + f'{layer}"{num(width, 2)}"/>')
     return "".join(out)
 
 
-def _tile(geo: Geometry, arm: int, count: int, multiplier: float, theme, rng) -> dict:
-    """One 60-degree stretch of an arm at the rim, as {(colour, width, opacity, bloom): [points]}."""
+def _tile(geo: Geometry, count: int, multiplier: float, theme, rng) -> dict:
+    """One 60-degree stretch at the rim of an arm that leaves the core at angle 0.
+
+    Returns {(colour, width, opacity, bloom): [points]}.
+    """
     start = TURNS * 2 * math.pi - PHI                       # the tile covers the last PHI of the arm
     mid_radius = geo.radius * math.exp(-geo.b * PHI / 2)
     clusters = [(rng.uniform(0, PHI), rng.gauss(0, 0.05)) for _ in range(CLUSTERS)]
@@ -110,56 +128,83 @@ def _tile(geo: Geometry, arm: int, count: int, multiplier: float, theme, rng) ->
         if abs(delta) > OFF_AXIS:
             size, _share, opacity, bloom = SIZES[0] if rng.random() < 0.7 else SIZES[1]
         r = R0 * math.exp(geo.b * (start + s)) * (1 + delta)
-        a = geo.angle(arm) + start + s
+        a = start + s
         key = (_pick(rng, theme.dust), round(size * multiplier * mid_radius, 2), opacity, bloom)
         buckets.setdefault(key, []).append((r * math.cos(a), r * math.sin(a)))
     return buckets
 
 
-def dust(geo: Geometry, cuts: list, theme, rng, motion) -> tuple:
+def _copies(geo: Geometry, r_lo: float, r_hi: float) -> list:
+    """Which copies of the rim tile can show between two radii at some point of a loop (0 is the rim's own)."""
+    out, j = [], 0
+    while geo.radius * geo.k ** j >= R0 * 0.7:
+        if geo.radius * geo.k ** (j + 1) > r_lo * 0.85 and geo.radius * geo.k ** (j - 1) < r_hi:
+            out.append(j)
+        j -= 1
+    return out
+
+
+def dust(geo: Geometry, cuts: list, theme, rng, motion, keep: float = 1.0) -> tuple:
     """(defs, body) of the particle field, in coordinates relative to the core.
 
-    cuts is the radius where each arm ends. Each arm has three layers of
-    particles flowing at different speeds, each layer behind a radial mask
+    cuts is the radius where each arm ends. Each arm has up to three layers
+    of particles flowing at different speeds, each layer behind a radial mask
     that fades it in and out; then comes the dense bulge at the core.
+
+    The cost is bounded whatever the number of arms. There are TILE_VARIANTS
+    particle patterns per layer, which further arms reuse at another point of
+    the loop; at most MAX_FLOWING layers flow, while each arm keeps one; and
+    past FULL_ARMS whole arms the same amount of dust is spread thinner.
+    keep is the fraction of the particles that is drawn at all.
     """
     frames = "".join(
         f"{num(100 * q / FLOW_STEPS)}%{{transform:rotate({num(geo.flow(q / FLOW_STEPS)[0], 2)}deg) "
         f"scale({num(geo.flow(q / FLOW_STEPS)[1], 4)})}}" for q in range(FLOW_STEPS + 1))
     motion.define("flow", f".flow{{animation:flow 22s linear infinite}}@keyframes flow{{{frames}}}")
 
-    defs, body, ids, R = [], [], [0], geo.radius
+    R = geo.radius
+    layers = LAYERS[:max(1, min(len(LAYERS), MAX_FLOWING // max(len(cuts), 1)))]
+    bands = []                                              # (arm, layer, inner radius, outer radius, copies)
     for arm, cut in enumerate(cuts):
-        for layer, (count, seconds, inner, outer, multiplier) in enumerate(LAYERS):
+        for layer, (_count, _seconds, inner, outer, _multiplier) in enumerate(layers):
             r_lo, r_hi = inner * R, min(outer * R, cut) * 1.04
-            if r_lo >= r_hi * 0.9:
-                continue
-            tile = f"t{arm}{layer}"
-            defs.append(f'<g id="{tile}">{_field(_tile(geo, arm, count, multiplier, theme, rng), theme.glow, ids)}</g>')
-            # only the copies that can show inside this band at some point of a loop
-            copies = []
-            j = 0
-            while R * geo.k ** j >= R0 * 0.7:
-                if R * geo.k ** (j + 1) > r_lo * 0.85 and R * geo.k ** (j - 1) < r_hi:
-                    degrees, scale = geo.copy(j)
-                    copies.append(f'<use href="#{tile}" transform="rotate({num(degrees, 2)}) scale({num(scale, 4)})"/>')
-                j -= 1
-            fade_in = ('<stop offset="0" stop-color="#fff"/>' if not r_lo else
-                       f'<stop offset="{num(max(r_lo - R * 0.1, 0) / r_hi, 3)}" stop-color="#fff" stop-opacity="0"/>'
-                       f'<stop offset="{num(r_lo / r_hi, 3)}" stop-color="#fff"/>')
+            if r_lo < r_hi * 0.9:
+                bands.append((arm, layer, r_lo, r_hi, _copies(geo, r_lo, r_hi)))
+    whole = FULL_ARMS * sum(count * len(_copies(geo, inner * R, outer * R * 1.04))
+                            for count, _seconds, inner, outer, _multiplier in LAYERS)
+    asked = sum(layers[layer][0] * len(copies) for _arm, layer, _lo, _hi, copies in bands)
+    density = keep * (min(1.0, whole / asked) if asked else 1.0)
+
+    defs, body, ids, tiles, masks = [], [], [0], set(), {}
+    for arm, layer, r_lo, r_hi, copies in bands:
+        count, seconds, _inner, _outer, multiplier = layers[layer]
+        tile = f"t{arm % TILE_VARIANTS}{layer}"
+        if tile not in tiles:
+            tiles.add(tile)
+            field = _field(_tile(geo, max(round(count * density), 1), multiplier, theme, rng), theme.glow, ids)
+            defs.append(f'<g id="{tile}">{field}</g>')
+        reach = (num(r_lo), num(r_hi))
+        if reach not in masks:
+            masks[reach] = len(masks)
+            fade_in = "" if not r_lo else (
+                f'<stop offset="{num(max(r_lo - R * 0.1, 0) / r_hi, 3)}" stop-color="#fff" stop-opacity="0"/>'
+                f'<stop offset="{num(r_lo / r_hi, 3)}" stop-color="#fff"/>')
             side = num(r_hi)
             defs.append(
-                f'<radialGradient id="g{arm}{layer}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="{side}">{fade_in}'
-                f'<stop offset=".8" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>'
-                f'<mask id="m{arm}{layer}" maskUnits="userSpaceOnUse" x="-{side}" y="-{side}" width="{num(r_hi * 2)}" '
-                f'height="{num(r_hi * 2)}"><circle r="{side}" fill="url(#g{arm}{layer})"/></mask>')
-            phase = rng.uniform(0, seconds)                 # drawn whether or not motion is on
-            body.append(f'<g mask="url(#m{arm}{layer})"><g{motion.cls("flow", delay=-phase, duration=seconds)}>'
-                        f'{"".join(copies)}</g></g>')
+                f'<radialGradient id="g{masks[reach]}">{fade_in}<stop offset=".8" stop-color="#fff"/>'
+                f'<stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>'
+                f'<mask id="k{masks[reach]}" maskUnits="userSpaceOnUse" x="-{side}" y="-{side}" '
+                f'width="{num(r_hi * 2)}" height="{num(r_hi * 2)}"><circle r="{side}" fill="url(#g{masks[reach]})"/></mask>')
+        leaves = math.degrees(geo.angle(arm))
+        placed = "".join(f'<use href="#{tile}" transform="rotate({num(leaves + geo.copy(j)[0], 2)}) '
+                         f'scale({num(geo.copy(j)[1], 4)})"/>' for j in copies)
+        phase = rng.uniform(0, seconds)                     # drawn whether or not motion is on
+        body.append(f'<g mask="url(#k{masks[reach]})"><g{motion.cls("flow", delay=-phase, duration=seconds)}>'
+                    f'{placed}</g></g>')
 
     sizes = [(index, size[1]) for index, size in enumerate(SIZES)]
     bulge = {}
-    for _ in range(320):
+    for _ in range(round(BULGE * keep)):
         a, r = rng.uniform(0, 2 * math.pi), abs(rng.gauss(0, R * 0.095))
         index = _pick(rng, sizes)
         key = (_pick(rng, theme.dust), BULGE_SIZES[index], SIZES[index][2], SIZES[index][3])
@@ -223,8 +268,10 @@ def label_text(name: str, geo: Geometry) -> str:
     return wrap(name, label_size(geo), LABEL_STYLE, LABEL_MAX_WIDTH, max_lines=1)[0]
 
 
-def place_labels(names: list, positions: dict, stars: dict, geo: Geometry) -> dict:
+def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obstacles: list = ()) -> dict:
     """{name: (x, baseline, anchor, box)} for the stars that get their name written.
+
+    obstacles are boxes already taken by other text (the arms' names).
 
     Each label tries the right and the left of its star, level with it and a
     line above or below, and takes the spot that covers the fewest other stars
@@ -235,7 +282,7 @@ def place_labels(names: list, positions: dict, stars: dict, geo: Geometry) -> di
     atlas = font(LABEL_STYLE)
     ascent = size * atlas["ascent"] / atlas["upm"]
     box_height = size * (atlas["ascent"] + atlas["descent"]) / atlas["upm"] - 2
-    placed, boxes = {}, []
+    placed, boxes = {}, list(obstacles)
     for name in sorted(names, key=lambda n: (-stars.get(n, 0), n)):
         x, y = positions[name]
         width = measure(label_text(name, geo), size, LABEL_STYLE)
@@ -289,3 +336,216 @@ def arm_name_paths(model, geo: Geometry) -> list:
             points.reverse()
         paths.append((arm.name, points))
     return paths
+
+
+# ── the whole plate ──────────────────────────────────────────────────────────
+
+T_IN = 3.6                        # seconds from the scattered field to stars resting on the arms
+ACTOR_GROUPS, ACTORS_PER_GROUP = 14, 48
+ACTOR_SIZES = (0.8, 1.3, 1.3, 2.0)       # three sizes, plain: they live four seconds and need no bloom
+FIELD_STARS = 80                  # the sparse background sky
+TWINKLING = 8                     # of which this many twinkle
+ENTRANCE_STEPS = 16               # more stars than this appear in groups instead of one by one
+PULSING = 8                       # active stars, beyond the named ones, whose halo breathes
+NAME_SIZES = ((48, 30), (36, 24))  # (largest, smallest) size of the name: desktop, mobile
+BYTE_BUDGET = 110_000             # the file's ceiling (spec, section 5)
+THINNING = (1.0, 0.75, 0.55, 0.4, 0.25)   # share of the dust kept, tried in order until the file fits
+
+
+def _identity(profile: dict, theme, geo: Geometry, ts: Typesetter) -> str:
+    """Name, tagline and (on desktop) the philosophy line. Never animated: readable from the first frame."""
+    mobile = geo.width < 500
+    left = 24 if mobile else 44
+    room = geo.width - 2 * left if mobile else geo.cx - geo.radius - 10 - left
+    largest, smallest = NAME_SIZES[mobile]
+    name = str(profile.get("name", ""))
+    size = largest
+    while size > smallest and measure(name, size, "light") > room:
+        size -= 2
+    y = 58 if mobile else 196
+    out = [ts.line(left, y, wrap(name, size, "light", room, max_lines=1)[0] if name.strip() else "", size,
+                   theme.ink, "light")]
+    tagline = str(profile.get("tagline") or "")
+    if tagline.strip():
+        tag_size = 17 if mobile else 20
+        out.append(ts.line(left + (0 if mobile else 1), y + (26 if mobile else 32),
+                           wrap(tagline, tag_size, "italic", room, max_lines=1)[0], tag_size, theme.mute, "italic"))
+    if not mobile:
+        for index, line in enumerate(wrap(str(profile.get("philosophy") or ""), 14.5, "italic", min(room, 320),
+                                          balance=True)):
+            out.append(ts.line(left + 1, y + 78 + index * 19, line, 14.5, theme.mute, "italic"))
+    return "".join(out)
+
+
+def _sky(geo: Geometry, theme, rng, motion) -> str:
+    """A sparse field of faint stars behind everything; a few of them twinkle."""
+    colour = theme.haze if theme.dark else theme.mute
+    steady, twinkling = {}, []
+    for index in range(FIELD_STARS if geo.width > 500 else FIELD_STARS * 5 // 8):
+        x, y = rng.uniform(8, geo.width - 8), rng.uniform(8, geo.height - 8)
+        width, opacity = rng.choice((0.8, 1.2, 1.7)), rng.choice((0.25, 0.4, 0.58))
+        if index < TWINKLING:
+            twinkling.append(f'<circle cx="{num(x)}" cy="{num(y)}" r="{num(width / 2, 2)}" fill="{colour}" '
+                             f'fill-opacity="{opacity}"{motion.cls("tw", delay=-index * 0.7)}/>')
+        else:
+            steady.setdefault((width, opacity), []).append((x, y))
+    steady_dots = "".join(dots(points, width, colour, opacity, standalone=False)
+                          for (width, opacity), points in sorted(steady.items()))
+    return f'<g {PARTICLE_GROUP}>{steady_dots}</g>' + "".join(twinkling)
+
+
+def _actors(geo: Geometry, cuts: list, theme, rng, motion, ids: list, keep: float = 1.0) -> str:
+    """The entrance: a scattered field whose stars swirl inward, bunch up and settle onto the arms.
+
+    Each group is a sparse sample of the whole galaxy that starts rotated and
+    enlarged by its own amount; together they read as a random field, and no
+    two stars follow the same path. They live four seconds and never stand
+    still, so their coordinates are whole pixels. Exists only when motion is on.
+    """
+    # one set of keyframes; each group brings its own turn (t, u, v) and spread (s, r)
+    motion.define("act", (
+        f".act{{animation:act {T_IN}s linear both}}"
+        "@keyframes act{0%{opacity:0;transform:rotate(var(--t)) scale(var(--s))}12%{opacity:1}"
+        "40%{transform:rotate(var(--u)) scale(var(--r));animation-timing-function:cubic-bezier(.55,.05,.85,.5)}"
+        "78%{transform:rotate(var(--v)) scale(.5);animation-timing-function:cubic-bezier(.2,.6,.3,1)}"
+        "100%{opacity:1;transform:rotate(0deg) scale(1)}}"))
+    sizes = [(index, size[1]) for index, size in enumerate(SIZES)]
+    groups = []
+    for _ in range(ACTOR_GROUPS):
+        buckets = {}
+        for _ in range(round(ACTORS_PER_GROUP * keep)):
+            if rng.random() < 0.22 or not cuts:
+                a, r = rng.uniform(0, 2 * math.pi), abs(rng.gauss(0, geo.radius * 0.1))
+                spot = (r * math.cos(a), r * math.sin(a))
+            else:
+                arm = rng.randrange(len(cuts))
+                r = rng.uniform(geo.radius * 0.12, cuts[arm])
+                x, y = geo.plane(arm, r)
+                wobble = 1 + rng.gauss(0, 0.06)
+                spot = (x * wobble, y * wobble)
+            index = _pick(rng, sizes)
+            buckets.setdefault((_pick(rng, theme.dust), ACTOR_SIZES[index], 1.0, False), []).append(spot)
+        turn, spread, delay = rng.uniform(110, 290), rng.uniform(2.3, 3.4), rng.uniform(0, 0.3)
+        start = {"t": f"{num(-turn)}deg", "u": f"{num(-turn * 0.93)}deg", "v": f"{num(-turn * 0.2)}deg",
+                 "s": num(spread, 2), "r": num(spread * 0.97, 2)}
+        groups.append(f'<g{motion.cls("act", delay=delay, vars=start)}>'
+                      f'{_field(buckets, theme.glow, ids, bloom_on=False, places=0)}</g>')
+    motion.define("leave", f".leave{{animation:leave 1s ease-in {num(T_IN + 0.35, 2)}s both}}"
+                           "@keyframes leave{0%{opacity:1}100%{opacity:0}}")
+    return f'<g{motion.cls("leave", only=True)}>{"".join(groups)}</g>'
+
+
+def _summary(model) -> str:
+    repos = [r for arm in model.arms for r in arm.repos] + list(model.loose)
+    if not repos:
+        return "No public repositories yet."
+    arms = ", ".join(f"{arm.name} {len(arm.repos)}" for arm in model.arms if arm.name)
+    brightest = max(repos, key=lambda r: r.stars)
+    parts = [f"{len(repos)} repositor{'y' if len(repos) == 1 else 'ies'}"]
+    if arms:
+        parts.append(f"by focus area: {arms}")
+    if model.loose:
+        parts.append(f"{len(model.loose)} outside any area")
+    parts.append(f"brightest: {brightest.name} with {brightest.stars} star{'' if brightest.stars == 1 else 's'}")
+    return "; ".join(parts) + "."
+
+
+def render(model, profile: dict, theme, mobile: bool = False, motion: bool = True, seed: str = "") -> str:
+    """The galaxy header. model is model.GalaxyModel; seed (the login) fixes every random choice.
+
+    Stars and text are data and are always drawn in full. If that leaves the
+    file over BYTE_BUDGET, the dust, which stands for nothing, is thinned.
+    """
+    svg = ""
+    for keep in THINNING:
+        svg = _compose(model, profile, theme, mobile, motion, seed, keep)
+        if len(svg.encode("utf-8")) <= BYTE_BUDGET:
+            break
+    return svg
+
+
+def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str, keep: float) -> str:
+    geo = Geometry(mobile, len(model.arms))
+    mo, ts = Motion(motion), Typesetter()
+    rng = random.Random(f"galaxy:{seed}")
+    cuts = arm_cuts(model, geo)
+    repos = {r.name: r for arm in model.arms for r in arm.repos}
+    repos.update({r.name: r for r in model.loose})
+
+    sky = _sky(geo, theme, rng, mo)
+    dust_defs, dust_body = dust(geo, cuts, theme, rng, mo, keep)
+    positions = place_stars(model, geo, rng)
+    ids = [1000]                                           # bloom path ids of the actors, clear of the dust's
+    actors = _actors(geo, cuts, theme, rng, mo, ids, keep) if motion else ""
+
+    mo.define("ignite", f".ignite{{animation:ignite 1.9s ease-out {num(T_IN * 0.7, 2)}s both}}"
+                        "@keyframes ignite{0%{transform:scale(.08);opacity:0}38%{transform:scale(1.35);opacity:1}"
+                        "100%{transform:scale(1)}}")
+    mo.define("arrive", f".arrive{{animation:arrive 1.2s ease-out {num(T_IN + 0.1, 2)}s both}}"
+                        "@keyframes arrive{from{opacity:0}}")
+    hot = "#ffffff" if theme.dark else theme.haze
+    k = (0.9, 0.42, 0.09) if theme.dark else (0.4, 0.2, 0.06)
+    defs = [
+        star_defs(theme),
+        f'<radialGradient id="cg"><stop offset="0" stop-color="{hot}" stop-opacity="{k[0]}"/>'
+        f'<stop offset=".14" stop-color="{theme.haze}" stop-opacity="{k[1]}"/>'
+        f'<stop offset=".5" stop-color="{theme.haze}" stop-opacity="{k[2]}"/>'
+        f'<stop offset="1" stop-color="{theme.haze}" stop-opacity="0"/></radialGradient>',
+        '<filter id="lb" x="-40%" y="-80%" width="180%" height="260%"><feGaussianBlur stdDeviation="5.5"/></filter>',
+        dust_defs,
+    ]
+    body = [sky,
+            f'<g transform="translate({geo.cx} {geo.cy})" {PARTICLE_GROUP}><circle{mo.cls("ignite")} r="{num(geo.radius * 0.5)}" '
+            f'fill="url(#cg)"/><g{mo.cls("arrive")}>{dust_body}</g>{actors}</g>']
+
+    # stars appear in the order their repositories were created
+    order = [name for name in model.order if name in positions]
+    steps = min(len(order), ENTRANCE_STEPS)
+    when = {name: T_IN + 0.9 + 1.9 * (index * steps // max(len(order), 1)) / max(steps - 1, 1)
+            for index, name in enumerate(order)}
+    today = model.today or max((r.pushed for r in repos.values()), default=None)
+    state = {name: recency(r.pushed, today) for name, r in repos.items()}
+    pulsing = set(model.labels) | set(sorted((n for n in order if state[n] == "now"),
+                                             key=lambda n: -repos[n].stars)[:PULSING])
+
+    def glyph(name: str, index: int) -> str:
+        return star(repos[name].stars, state[name], theme, mo, phase=index * 0.37, shimmer=name in pulsing)
+
+    def at(name: str, inner: str) -> str:
+        x, y = positions[name]
+        return f'<g transform="translate({num(x)} {num(y)})">{inner}</g>'
+
+    if len(order) <= ENTRANCE_STEPS:
+        # few enough to ignite one by one
+        body += [at(name, f'<g{mo.cls("pop", delay=when[name])}>{glyph(name, index)}</g>')
+                 for index, name in enumerate(order)]
+    else:
+        batches = {}
+        for index, name in enumerate(order):
+            batches.setdefault(when[name], []).append(at(name, glyph(name, index)))
+        body += [f'<g{mo.cls("soft", delay=delay)}>{"".join(glyphs)}</g>' for delay, glyphs in sorted(batches.items())]
+
+    size = label_size(geo)
+    scale = size / font(LABEL_STYLE)["upm"]
+    star_counts = {name: r.stars for name, r in repos.items()}
+    arm_names = arm_name_paths(model, geo)
+    taken = [(min(x for x, _y in points) - size, min(y for _x, y in points) - size,
+              max(x for x, _y in points) - min(x for x, _y in points) + 2 * size,
+              max(y for _x, y in points) - min(y for _x, y in points) + 2 * size) for _name, points in arm_names]
+    for name, (x, baseline, anchor, box) in place_labels(sorted(model.labels & set(positions)), positions,
+                                                          star_counts, geo, taken).items():
+        halo = (f' stroke="{theme.bg}" stroke-width="{num(2.4 / scale)}" stroke-opacity=".55" '
+                f'stroke-linejoin="round" paint-order="stroke"')
+        body.append(f'<g{mo.cls("soft", delay=when[name] + 0.35)}>'
+                    f'<rect x="{num(box[0])}" y="{num(box[1])}" width="{num(box[2])}" height="{num(box[3])}" rx="8" '
+                    f'fill="{theme.chip[0]}" fill-opacity="{theme.chip[1]}" filter="url(#lb)"/>'
+                    f'{ts.line(x, baseline, label_text(name, geo), size, theme.ink, LABEL_STYLE, anchor, halo)}</g>')
+    italic_scale = size / font("italic")["upm"]
+    for name, points in arm_names:
+        body.append(ts.on_curve(points, name, size, theme.mute, "italic",
+                                f' stroke="{theme.bg}" stroke-width="{num(3.5 / italic_scale)}" stroke-linejoin="round" '
+                                f'paint-order="stroke"{mo.cls("soft", delay=T_IN + 2.2)}'))
+    body.append(_identity(profile, theme, geo, ts))
+    defs.append(ts.defs())
+    title = f"Galaxy of {profile.get('name', '')}".strip()
+    return frame(theme, geo.width, geo.height, "".join(body), title, _summary(model), "".join(defs), mo)

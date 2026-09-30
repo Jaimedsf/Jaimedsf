@@ -270,7 +270,8 @@ def test_when_no_repository_matches_an_arm_there_are_two_unnamed_arms_and_everyt
 
 def test_empty_profile_is_two_unnamed_arms_and_nothing_else():
     model = galaxy(snapshot([]), {"projects": [], "galaxy_arms": ARMS})
-    assert model == GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
+    assert model == GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=(),
+                                today=TODAY)
 
 
 def test_a_featured_fork_is_a_star_even_though_other_forks_are_not():

@@ -1,4 +1,12 @@
 {
+ "galaxy-header-light[cyanotype]": "58318c94d24d694ce9eb048235fdd55f7f17608afd140a66e2af806f74793159",
+ "galaxy-header-light[deep-sky]": "c0ff6dd17b421e21b33e688b7a69b77876151ba783c995eccf7eb2b239a2c0da",
+ "galaxy-header-mobile-light[cyanotype]": "f2b5d49c66221ef17fe3061e29e661980443dc7b7d14b509218b1cb787ee6426",
+ "galaxy-header-mobile-light[deep-sky]": "5ed3ae725b2e0a656c299ded4968c2714632f0586004b0b57ac9c606a55d696a",
+ "galaxy-header-mobile[cyanotype]": "8087908c0879f3bd7c28420041ebafe08269ecb8a2ce3d853fa202ea3fc62914",
+ "galaxy-header-mobile[deep-sky]": "b7a853d72fe073d3f50693f5eb2ef88c58c499f90b495101737f2bd2da112d1c",
+ "galaxy-header[cyanotype]": "47b183b3bae08353824bbd1ef6857dc312a66ce1acb393df6be12834ec8370ca",
+ "galaxy-header[deep-sky]": "a6db1d7faf39e443518f0f54bf57f32173d788c198f0258ec5d7a8673dfa78ed",
  "projects-constellation-light[cyanotype]": "caf4cf2fa99e7a5e640de8c38da88f0ba2dd9916d7568cbb65eab9d33e9702a4",
  "projects-constellation-light[deep-sky]": "b3179f222cd81324d5e8571f2fe4118bf728dd703a0cb3a379cee8501c5f53e8",
  "projects-constellation-mobile-light[cyanotype]": "33131efb0af2c290ef465fdb6326780e3d110628faf0526a2d5e4e6cec428793",

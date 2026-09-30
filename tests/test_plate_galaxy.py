@@ -86,14 +86,15 @@ def make_dust(cuts=(196.0, 171.5), mobile=False, motion=True, seed="ada"):
     return geo, mo, defs, body
 
 
-def test_each_arm_has_three_layers_each_behind_its_own_mask():
+def test_each_arm_has_three_layers_each_behind_a_mask():
     _geo, _mo, defs, body = make_dust()
-    assert defs.count("<mask ") == 6 and body.count('mask="url(#') == 6
+    assert body.count('mask="url(#') == 6
+    assert defs.count("<mask ") == 5          # the inner layer ends at the same radius on both arms
 
 
 def test_a_short_arm_skips_the_layer_that_would_lie_beyond_its_cut():
-    _geo, _mo, defs, _body = make_dust(cuts=(196.0, 60.0))
-    assert defs.count("<mask ") == 5
+    _geo, _mo, _defs, body = make_dust(cuts=(196.0, 60.0))
+    assert body.count('mask="url(#') == 5
 
 
 def test_tile_copies_reach_from_the_rim_down_into_the_core():
@@ -124,7 +125,7 @@ def test_the_bulge_swirls():
 def test_without_motion_the_dust_is_the_same_but_still():
     _geo, mo, defs, body = make_dust(motion=False)
     assert "class=" not in body and mo.css() == ""
-    assert body.count("<use ") > 20 and defs.count("<mask ") == 6
+    assert body.count("<use ") > 20 and body.count('mask="url(#') == 6
 
 
 def test_same_seed_same_dust_and_another_seed_another_dust():
@@ -132,15 +133,69 @@ def test_same_seed_same_dust_and_another_seed_another_dust():
     assert make_dust(seed="ada")[2] != make_dust(seed="babbage")[2]
 
 
+def test_arms_beyond_the_third_reuse_the_particle_tiles_of_the_first_three():
+    _geo, _mo, defs, body = make_dust(cuts=(196.0,) * 6)
+    assert len(re.findall(r'<g id="t\d+">', defs)) == 9          # three variants of three layers
+    assert body.count('class="flow"') == 18                     # and still three flowing layers per arm
+    assert set(re.findall(r'<use href="#(t\d+)"', body)) == set(re.findall(r'<g id="(t\d+)">', defs))
+
+
+def test_arms_sharing_a_tile_never_flow_in_step():
+    _geo, _mo, _defs, body = make_dust(cuts=(196.0,) * 6)
+    delays = re.findall(r'class="flow" style="animation-delay:(-?[\d.]+)s', body)
+    assert len(delays) == 18 and len(set(delays)) == 18
+
+
+@pytest.mark.parametrize("arms", [7, 9, 12, 18])
+def test_many_arms_flow_in_fewer_layers_so_the_animated_groups_stay_bounded(arms):
+    _geo, _mo, _defs, body = make_dust(cuts=(196.0,) * arms)
+    assert arms <= body.count('class="flow"') <= 18
+
+
+def drawn_particles(arms):
+    """How many particles the flowing layers put on screen: each tile's count times its copies."""
+    _geo, _mo, defs, body = make_dust(cuts=(196.0,) * arms)
+    per_tile = {tile: content.count("h.01") for tile, content in re.findall(
+        r'<g id="(t\d+)">(.*?)</g>(?=<g id="t\d+">|<radialGradient|<mask|$)', defs)}
+    # a bright particle is written once and drawn through five layers; count it once
+    return sum(per_tile[tile] for tile in re.findall(r'<use href="#(t\d+)"', body))
+
+
+def test_with_few_arms_every_arm_has_the_full_amount_of_dust():
+    assert drawn_particles(2) == pytest.approx(2 * drawn_particles(1), rel=0.1)
+    assert drawn_particles(4) == pytest.approx(4 * drawn_particles(1), rel=0.1)
+
+
+@pytest.mark.parametrize("arms", [6, 9, 12, 18])
+def test_with_many_arms_the_dust_thins_so_the_galaxy_never_gets_heavier(arms):
+    assert drawn_particles(arms) <= 1.1 * drawn_particles(4)
+    assert drawn_particles(arms) >= 0.6 * drawn_particles(4)
+
+
+def test_layers_of_the_same_reach_share_one_mask():
+    _geo, _mo, defs, body = make_dust(cuts=(196.0,) * 6)
+    assert defs.count("<mask ") == 3 and body.count('mask="url(#') == 18
+
+
+def test_bright_particles_of_one_size_share_their_bloom_layers_whatever_their_colour():
+    _geo, _mo, defs, _body = make_dust(cuts=(196.0,))
+    tiles = re.findall(r'<g id="t\d+">.*?(?=<g id="t\d+">|<radialGradient)', defs)
+    assert len(tiles) == 3
+    for tile in tiles:
+        colours = set(re.findall(r'stroke="(#[0-9a-f]{6})"', tile))
+        assert len(colours) == 3
+        assert 0 < tile.count("<use ") <= 10                    # five layers for each of the two bright sizes
+
+
 def test_large_particles_stay_on_the_axis_of_the_arm():
     geo = Geometry(False, 2)
-    tile = galaxy._tile(geo, 0, 4000, 1.0, SKY, random.Random("ada"))
+    tile = galaxy._tile(geo, 4000, 1.0, SKY, random.Random("ada"))
     start = TURNS * 2 * math.pi - PHI
     small = sorted({width for (_c, width, _o, _b) in tile})[:2]
     strays = 0
     for (_colour, width, _opacity, _bloom), points in tile.items():
         for x, y in points:
-            s = (math.atan2(y, x) - geo.angle(0) - start) % (2 * math.pi)
+            s = (math.atan2(y, x) - start) % (2 * math.pi)
             off_axis = abs(math.hypot(x, y) / (R0 * math.exp(geo.b * (start + s))) - 1)
             if off_axis > galaxy.OFF_AXIS + 1e-6:
                 strays += 1
@@ -150,6 +205,7 @@ def test_large_particles_stay_on_the_axis_of_the_arm():
 
 # ── repository stars ─────────────────────────────────────────────────────────
 
+from dataclasses import replace
 from datetime import date, timedelta
 
 import yaml
@@ -333,3 +389,214 @@ def test_arm_name_paths_read_left_to_right_run_just_outside_the_arm_and_are_long
         length = sum(distance(a, b) for a, b in zip(points, points[1:]))
         assert length >= measure(name, 13.5, "italic") + 16
         assert all(0 <= x <= geo.width and 0 <= y <= geo.height for x, y in points)
+
+
+# ── the whole plate ──────────────────────────────────────────────────────────
+
+import xml.etree.ElementTree as ET
+
+from tests.contract import rules
+from tests.svgread import text_runs, texts
+
+PROFILE = {"name": "Nyx Orion", "tagline": "Full Stack Developer & Open Source Explorer",
+           "philosophy": '"The best code is the code that empowers others."'}
+EMPTY = GalaxyModel(arms=(Arm(None, ()), Arm(None, ())), loose=(), labels=frozenset(), order=())
+
+
+def plate(model=None, profile=PROFILE, mobile=False, motion=True, seed="galaxy-dev", theme=SKY):
+    return galaxy.render(model or demo_model(), profile, theme, mobile=mobile, motion=motion, seed=seed)
+
+
+def star_count(svg):
+    lit = len(re.findall(r'<circle r="[\d.]+" fill="url\(#c[ny]\)"/>', svg))
+    dormant = len(re.findall(r'<circle r="[\d.]+" fill="none" stroke="#[0-9a-f]{6}" stroke-opacity=".8"/>', svg))
+    return lit + dormant
+
+
+def animated(svg):
+    return sum(1 for element in ET.fromstring(svg).iter() if "class" in element.attrib)
+
+
+def test_plate_sizes():
+    assert rules.viewbox(plate()) == (850, 430)
+    assert rules.viewbox(plate(mobile=True)) == (390, 478)
+
+
+def test_one_star_per_repository():
+    assert star_count(plate()) == 15
+    assert star_count(plate(mobile=True)) == 15
+
+
+def test_featured_and_brightest_repositories_are_named():
+    names = texts(plate())
+    assert "nebula-ui" in names and "stargate-api" in names
+    assert plate().count('filter="url(#lb)"') == 2
+
+
+def test_arm_names_are_set_along_their_curves():
+    curved = len(re.findall(r'<use href="#i[0-9a-f]+" transform="translate', plate()))
+    assert curved == len("Frontend") + len("Backend") + len("DevOps")
+
+
+def test_identity_is_never_animated():
+    runs = [run for run in text_runs(plate()) if run["text"] in ("NyxOrion",)]
+    assert runs and runs[0]["size"] == pytest.approx(48)
+    assert re.search(r'<g transform="translate\(44 196\) scale\(.048\)" fill="#eef1f6"><use', plate())
+
+
+def test_a_long_name_shrinks_to_fit_beside_the_galaxy_and_is_cut_if_it_must():
+    long = dict(PROFILE, name="Maximiliana Wolfeschlegelsteinhausenbergerdorff the Third of Somewhere")
+    run = next(r for r in text_runs(plate(profile=long)) if r["text"].startswith("Maximiliana"))
+    assert run["size"] < 48 and run["x"] + run["width"] <= 630 - 196 - 10
+    assert run["text"].endswith("…")
+
+
+def test_mobile_shows_name_and_tagline_only():
+    names = texts(plate(mobile=True))
+    assert "NyxOrion" in names and not any(t.startswith("“The") or t.startswith('"The') for t in names)
+
+
+def test_missing_tagline_and_philosophy_leave_no_empty_lines():
+    svg = plate(profile={"name": "Nyx Orion", "tagline": "", "philosophy": ""})
+    assert "<g transform" in svg and 'scale(.02)" fill' not in svg
+    ET.fromstring(svg)
+
+
+def test_entrance_actors_are_the_only_motion_only_elements_and_vanish_without_motion():
+    moving, still = plate(), plate(motion=False)
+    marked = re.findall(r'class="([^"]*\bmo\b[^"]*)"', moving)
+    assert marked == ["leave mo"]
+    assert "leave" not in still and moving.count("h.01") > still.count("h.01")
+
+
+def test_empty_profile_is_a_galaxy_of_dust_with_no_star_and_no_label():
+    svg = plate(model=EMPTY)
+    ET.fromstring(svg)
+    assert star_count(svg) == 0 and 'filter="url(#lb)"' not in svg
+    assert "No public repositories yet" in svg
+
+
+def test_description_tells_what_the_galaxy_holds():
+    svg = plate()
+    assert ">Galaxy of Nyx Orion</title>" in svg
+    assert "15 repositories" in svg and "Frontend 5" in svg and "nebula-ui" in svg
+
+
+def test_same_profile_same_galaxy_and_another_login_another_galaxy():
+    assert plate() == plate()
+    assert plate(seed="ada") != plate(seed="babbage")
+
+
+def big_model(stars=48, arms=6):
+    """Every star slot taken, across many focus areas, with every brightness and state."""
+    day = date(2019, 1, 1)
+    repos = [Repo(name=f"repo-{i:02d}", owner="ada", stars=int(1.22 ** i), created=day + timedelta(days=40 * i),
+                  pushed=date(2026, 9, 20) - timedelta(days=(i % 5) * 110), description="", primary_language="Python",
+                  languages={"Python": 1}, topics=(), is_fork=False) for i in range(stars)]
+    per = stars // arms
+    built = tuple(Arm(f"Area {a}", tuple(repos[a * per:(a + 1) * per])) for a in range(arms))
+    return GalaxyModel(arms=built, loose=(), labels=frozenset(r.name for r in repos[-4:]),
+                       order=tuple(r.name for r in repos), today=date(2026, 9, 30))
+
+
+@pytest.mark.parametrize("arms", [3, 6, 12])
+@pytest.mark.parametrize("mobile", [False, True])
+@pytest.mark.parametrize("theme", [SKY, get_theme("cyanotype", "light")], ids=["deep-sky", "cyanotype-light"])
+def test_a_crowded_galaxy_still_respects_the_contract(mobile, arms, theme):
+    long = {"name": "Maximiliana Wolfeschlegelsteinhausen", "tagline": "Staff Engineer, Platform & Developer Experience",
+            "philosophy": "Every slot is taken, every arm is full, and the page still has to hold sixty frames."}
+    svg = plate(model=big_model(arms=arms), profile=long, mobile=mobile, theme=theme)
+    assert star_count(svg) == 48
+    rules.within_budget(svg, 110_000, 100)
+    rules.rest_state_is_complete(svg)
+    rules.no_forbidden_techniques(svg)
+    rules.motion_is_guarded(svg)
+    rules.placements_are_inside(svg)
+    rules.svg_is_sound(svg)
+
+
+def wordy_model():
+    """The crowded galaxy again, with names that use as many different letters as they can."""
+    base = big_model(arms=6)
+    areas = ("Quartz & Jam", "Vex-Blowfish", "Czech Dwarf", "Glyph/Myth", "Sphinx: Judo", "Waltz (BKQ)")
+    names = {"repo-47": "JACKDAWS_love.my", "repo-46": "big-SPHINX-of-qtz", "repo-45": "Zephyr.Vow-Quick", "repo-44": "0123456789-xyz"}
+    arms = tuple(Arm(area, tuple(replace(r, name=names.get(r.name, r.name)) for r in arm.repos))
+                 for area, arm in zip(areas, base.arms))
+    return GalaxyModel(arms=arms, loose=(), labels=frozenset(names.values()),
+                       order=tuple(names.get(n, n) for n in base.order), today=base.today)
+
+
+WORDY = {"name": "Žofie Ångström-Queißer", "tagline": "Jived fox nymph grabs quick waltz; BLOWZY & VEXED?",
+         "philosophy": "“Sphinx of black quartz, judge my vow” — 0123456789 (WALTZ, BAD NYMPH, FOR QUICK JIGS VEX!)"}
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_the_header_fits_its_budget_even_when_the_text_uses_every_letter(mobile):
+    svg = plate(model=wordy_model(), profile=WORDY, mobile=mobile)
+    assert len(re.findall(r'<path id="[lrmi][0-9a-f]+" ', svg)) > (60 if mobile else 100)   # the text really is heavy
+    assert star_count(svg) == 48
+    rules.within_budget(svg, 110_000, 100)
+    rules.svg_is_sound(svg)
+
+
+def test_a_header_over_budget_sheds_dust_never_stars_or_text():
+    heavy, light = plate(model=wordy_model(), profile=WORDY), plate(model=big_model(arms=6), profile=WORDY)
+    assert star_count(heavy) == 48
+    assert {"ŽofieÅngström-Queißer", "JACKDAWS_love.my", "big-SPHINX-of-qtz", "Zephyr.Vow-Quick"} <= set(texts(heavy))
+    assert 0 < heavy.count("h.01") < light.count("h.01")
+
+
+def test_a_stars_state_is_judged_against_the_day_of_the_snapshot():
+    pushed = date(2026, 8, 1)
+    one = Repo(name="solo", owner="ada", stars=3, created=date(2024, 1, 1), pushed=pushed, description="",
+               primary_language="Python", languages={"Python": 1}, topics=(), is_fork=False)
+
+    def model_on(today):
+        return GalaxyModel(arms=(Arm("Backend", (one,)),), loose=(), labels=frozenset(), order=("solo",), today=today)
+
+    assert "url(#hn)" in plate(model=model_on(pushed + timedelta(days=5)))
+    assert "url(#hn)" not in plate(model=model_on(pushed + timedelta(days=60)))
+    assert "url(#hy)" in plate(model=model_on(pushed + timedelta(days=60)))
+
+
+def test_the_galaxy_model_carries_the_snapshots_day():
+    assert demo_model().today == date(2026, 9, 30)
+
+
+def test_entrance_actors_share_one_set_of_keyframes():
+    css = re.search(r"<style>(.*?)</style>", plate()).group(1)
+    assert css.count("@keyframes act{") == 1 and len(re.findall(r"@keyframes a\d", css)) == 0
+    starts = re.findall(r'class="act" style="([^"]*)"', plate())
+    assert len(starts) == 14 and len(set(starts)) == 14          # each group comes in from its own angle
+
+
+def test_entrance_actors_are_plain_dots_without_bloom():
+    moving, still = plate(), plate(motion=False)
+    assert moving.count("<use ") == still.count("<use ")          # the actors add no <use> at all
+
+
+def test_particle_paths_inherit_their_stroke_attributes_from_one_group():
+    svg = plate()
+    particle_paths = re.findall(r'<path d="M[^"]*h\.01[^"]*"[^>]*>', svg)
+    assert len(particle_paths) > 50
+    assert not any("stroke-linecap" in p or 'fill="none"' in p for p in particle_paths)
+    rules.no_forbidden_techniques(svg)
+
+
+def test_a_label_keeps_off_whatever_is_already_written_there():
+    geo = Geometry(False, 2)
+    free = place_labels(["engine"], {"engine": (500, 200)}, {"engine": 10}, geo)["engine"]
+    blocked = place_labels(["engine"], {"engine": (500, 200)}, {"engine": 10}, geo, obstacles=[free[3]])["engine"]
+    assert not overlap(blocked[3], free[3])
+
+
+def test_star_names_never_cover_an_arms_name():
+    for mobile in (False, True):
+        svg = plate(mobile=mobile)
+        chips = [tuple(float(v) for v in m) for m in re.findall(
+            r'<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="8"', svg)]
+        letters = [(float(x), float(y)) for x, y in re.findall(
+            r'<use href="#i[0-9a-f]+" transform="translate\(([\d.]+) ([\d.]+)\)', svg)]
+        assert chips and letters
+        assert not any(left <= x <= left + w and top <= y <= top + h
+                       for left, top, w, h in chips for x, y in letters)

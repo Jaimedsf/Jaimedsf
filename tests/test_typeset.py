@@ -241,3 +241,24 @@ def test_control_characters_never_reach_the_svg():
 
 def test_control_characters_do_not_count_as_width():
     assert measure("ab", 20) == measure("a\x08b", 20)
+
+
+# ── balanced two-line wrapping ───────────────────────────────────────────────
+
+PHRASE = "Solving one problem at a time, with code and creativity."
+
+
+def test_balanced_wrap_breaks_at_the_comma_instead_of_leaving_one_word_behind():
+    assert wrap(PHRASE, 14.5, "italic", 320) == ["Solving one problem at a time, with code and", "creativity."]
+    assert wrap(PHRASE, 14.5, "italic", 320, balance=True) == ["Solving one problem at a time,",
+                                                              "with code and creativity."]
+
+
+def test_balanced_wrap_keeps_one_line_when_one_line_is_enough():
+    assert wrap("AI Engineer", 14.5, "italic", 320, balance=True) == ["AI Engineer"]
+
+
+def test_balanced_wrap_never_exceeds_the_width():
+    text = "Building tools that make developers' lives easier and their deploys boring"
+    for line in wrap(text, 14.5, "italic", 260, balance=True):
+        assert measure(line, 14.5, "italic") <= 260

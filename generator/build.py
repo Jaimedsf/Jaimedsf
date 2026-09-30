@@ -8,10 +8,12 @@ it, so a new plate gets the whole contract battery by being listed here.
 from __future__ import annotations
 
 from generator import model
-from generator.plates import VARIANTS, featured
+from generator.plates import VARIANTS, featured, galaxy
 from generator.themes import get_theme
 
 RENDERERS = {
+    "galaxy-header": lambda snap, config, theme, mobile, motion:
+        galaxy.render(model.galaxy(snap, config), config["profile"], theme, mobile, motion, seed=snap.login),
     "projects-constellation": lambda snap, config, theme, mobile, motion:
         featured.render(model.featured(snap, config), theme, mobile, motion),
 }
