@@ -78,3 +78,49 @@ def test_every_picture_describes_its_plate_for_who_cannot_see_it():
     text = (ROOT / "README.profile.md").read_text(encoding="utf-8")
     alts = re.findall(r'<img src="\./assets/generated/[^"]+" width="850" alt="([^"]+)"', text)
     assert len(alts) == 4 and len(set(alts)) == 4 and all(len(alt) > 12 for alt in alts)
+
+
+# ── README.md and what ships with it ─────────────────────────────────────────
+
+def test_the_project_readme_previews_every_plate_with_the_same_picture_blocks():
+    blocks = pictures((ROOT / "README.md").read_text(encoding="utf-8"))
+    assert [fallback for _sources, fallback in blocks] == [f"{stem}.svg" for stem in build.RENDERERS]
+    for sources, fallback in blocks:
+        stem = fallback[:-len(".svg")]
+        assert [name for _media, name in sources] == [f"{stem}-mobile-light.svg", f"{stem}-mobile.svg",
+                                                      f"{stem}-light.svg"]
+
+
+def test_every_file_the_readmes_point_at_exists_in_the_repository():
+    for readme in ("README.md", "README.profile.md"):
+        text = (ROOT / readme).read_text(encoding="utf-8")
+        for path in set(re.findall(r'(?:src|srcset)="\./([^"]+)"', text)) | set(re.findall(r"\]\(([\w./-]+\.\w+)\)", text)):
+            assert (ROOT / path).exists(), f"{readme} points at {path}"
+
+
+def test_the_preview_images_are_what_the_demo_mode_draws_today():
+    """`make demo` refreshes them. A fork that has its own config.yml shows its own profile instead."""
+    if (ROOT / "config.yml").exists():
+        return
+    config = validate_config(example())
+    for name, svg in build.render_all(config, load_demo()).items():
+        path = ROOT / "assets" / "generated" / name
+        assert path.exists(), f"{name} is missing: run `make demo`"
+        assert path.read_text(encoding="utf-8") == svg, f"{name} is stale: run `make demo`"
+    assert {p.name for p in (ROOT / "assets" / "generated").glob("*.svg")} == FILES
+
+
+def test_the_version_is_two():
+    import generator
+    assert generator.__version__ == "2.0.0"
+    assert "## 2.0.0" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+
+def test_the_readme_describes_the_modules_that_exist():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    tree = text[text.index("## Architecture"):]
+    for module in re.findall(r"[├└]── (\w+\.py)", tree):
+        assert list((ROOT / "generator").rglob(module)), f"README lists {module}, which is not there"
+    for path in sorted((ROOT / "generator").glob("*.py")) + sorted((ROOT / "generator" / "plates").glob("*.py")):
+        if path.name not in ("__init__.py", "tech_catalog.py"):
+            assert path.name in tree, f"{path.name} is missing from the README's architecture"
