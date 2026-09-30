@@ -656,11 +656,14 @@ def test_a_featured_upstream_and_the_users_own_repository_of_the_same_name_are_t
 
 
 def test_a_label_moved_back_into_the_frame_never_lands_on_its_own_star():
-    """A wide name beside a star at the right edge, with the way to the left taken: it goes above or below."""
+    """A wide name beside a star at the right edge. Moved back into the frame at the star's own height it
+    would cover the star; with the nearer lines taken, it goes three lines up instead."""
     geo = Geometry(True, 2)
     name, star_at = "data-structures-and-algorithms-in-rust", (380, 240)
-    wall = (150, 0, 55, 478)                                     # something written all the way down, to the left
+    taken = [(150, 0, 55, 478),          # something written all the way down, to the left
+             (206, 208, 184, 21),        # the two lines above the star's
+             (206, 252, 184, 60)]        # and everything below it
     _x, _baseline, _anchor, (left, top, width, height) = place_labels(
-        [name], {name: star_at}, {name: 0}, geo, obstacles=[wall])[name]
-    assert left >= 150 + 55                                       # it did stay right of the wall
+        [name], {name: star_at}, {name: 0}, geo, obstacles=taken)[name]
+    assert not any(left < x + w and x < left + width and top < y + h and y < top + height for x, y, w, h in taken)
     assert not (left - 3 < star_at[0] < left + width + 3 and top - 3 < star_at[1] < top + height + 3)
