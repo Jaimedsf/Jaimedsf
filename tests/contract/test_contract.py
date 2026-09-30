@@ -104,6 +104,7 @@ def test_text_outside_the_font_still_stays_inside_the_plate(case):
     svg = render(stem, palette, mode, mobile, config=config)
     rules.text_stays_inside(svg)
     rules.placements_are_inside(svg)
+    rules.text_strokes_are_thin(svg)
 
 
 def test_same_input_same_bytes(case, moving):

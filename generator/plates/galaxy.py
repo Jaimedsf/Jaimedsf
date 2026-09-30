@@ -535,7 +535,6 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
         body += [f'<g{mo.cls("soft", delay=delay)}>{"".join(glyphs)}</g>' for delay, glyphs in sorted(batches.items())]
 
     size = label_size(geo)
-    scale = size / font(LABEL_STYLE)["upm"]
     star_counts = {name: r.stars for name, r in repos.items()}
     arm_names = arm_name_paths(model, geo)
     taken = [(min(x for x, _y in points) - size, min(y for _x, y in points) - size,
@@ -543,17 +542,13 @@ def _compose(model, profile: dict, theme, mobile: bool, motion: bool, seed: str,
               max(y for _x, y in points) - min(y for _x, y in points) + 2 * size) for _name, points in arm_names]
     for name, (x, baseline, anchor, box) in place_labels(sorted(model.labels & set(positions)), positions,
                                                           star_counts, geo, taken).items():
-        halo = (f' stroke="{theme.bg}" stroke-width="{num(2.4 / scale)}" stroke-opacity=".55" '
-                f'stroke-linejoin="round" paint-order="stroke"')
         body.append(f'<g{mo.cls("soft", delay=when[name] + 0.35)}>'
                     f'<rect x="{num(box[0])}" y="{num(box[1])}" width="{num(box[2])}" height="{num(box[3])}" rx="8" '
                     f'fill="{theme.chip[0]}" fill-opacity="{theme.chip[1]}" filter="url(#lb)"/>'
-                    f'{ts.line(x, baseline, label_text(name, geo), size, theme.ink, LABEL_STYLE, anchor, halo)}</g>')
-    italic_scale = size / font("italic")["upm"]
+                    f'{ts.line(x, baseline, label_text(name, geo), size, theme.ink, LABEL_STYLE, anchor, halo=(theme.bg, 2.4, 0.55))}</g>')
     for name, points in arm_names:
-        body.append(ts.on_curve(points, name, size, theme.mute, "italic",
-                                f' stroke="{theme.bg}" stroke-width="{num(3.5 / italic_scale)}" stroke-linejoin="round" '
-                                f'paint-order="stroke"{mo.cls("soft", delay=T_IN + 2.2)}'))
+        body.append(ts.on_curve(points, name, size, theme.mute, "italic", mo.cls("soft", delay=T_IN + 2.2),
+                                halo=(theme.bg, 3.5, 1)))
     body.append(_identity(profile, theme, geo, ts))
     defs.append(ts.defs())
     title = f"Galaxy of {profile.get('name', '')}".strip()

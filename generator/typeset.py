@@ -149,6 +149,20 @@ def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 
     return lines
 
 
+def _halo(halo, scale: float = 1.0) -> str:
+    """Attributes for an outline painted behind the letters. halo is (colour, width in pixels, opacity).
+
+    Outlined text is drawn in font units and scaled down, so there the width
+    is divided by the scale; fallback <text> is drawn in pixels (scale 1).
+    """
+    if not halo:
+        return ""
+    colour, width, opacity = halo
+    alpha = "" if opacity >= 1 else f' stroke-opacity="{num(opacity, 2)}"'
+    return (f' stroke="{colour}" stroke-width="{num(width / scale)}"{alpha} stroke-linejoin="round" '
+            f'paint-order="stroke"')
+
+
 def _fallback(x: float, y: float, text: str, size: float, fill: str, style: str, anchor: str,
               attrs: str, transform: str = "") -> str:
     anchor_attr = "" if anchor == "start" else f' text-anchor="{anchor}"'
@@ -170,13 +184,16 @@ class Typesetter:
         return gid
 
     def line(self, x: float, y: float, text: str, size: float, fill: str, style: str = "regular",
-             anchor: str = "start", attrs: str = "") -> str:
-        """One line of text with its baseline at y. anchor is start, middle or end."""
+             anchor: str = "start", attrs: str = "", halo=None) -> str:
+        """One line of text with its baseline at y. anchor is start, middle or end.
+
+        halo is (colour, width in pixels, opacity) for an outline behind the letters.
+        """
         text = clean(text)
         if not text:
             return ""
         if not covers(text, style):
-            return _fallback(x, y, text, size, fill, style, anchor, attrs)
+            return _fallback(x, y, text, size, fill, style, anchor, _halo(halo) + attrs)
         atlas = font(style)
         pens, total = _layout(text, atlas)
         scale = size / atlas["upm"]
@@ -190,11 +207,11 @@ class Typesetter:
             gid = self._glyph(style, ch, outline)
             uses.append(f'<use href="#{gid}" x="{num(pen)}"/>' if pen else f'<use href="#{gid}"/>')
         return (f'<g transform="translate({num(origin)} {num(y)}) scale({num(scale, 4)})" '
-                f'fill="{fill}"{attrs}>{"".join(uses)}</g>')
+                f'fill="{fill}"{_halo(halo, scale)}{attrs}>{"".join(uses)}</g>')
 
     def on_curve(self, points: list[tuple[float, float]], text: str, size: float, fill: str,
-                 style: str = "italic", attrs: str = "") -> str:
-        """Text set glyph by glyph along a polyline, centred on its length."""
+                 style: str = "italic", attrs: str = "", halo=None) -> str:
+        """Text set glyph by glyph along a polyline, centred on its length. halo as in line()."""
         text = clean(text)
         if not text or len(points) < 2:
             return ""
@@ -215,7 +232,7 @@ class Typesetter:
         if not covers(text, style):
             mx, my, angle = at(lengths[-1] / 2)
             transform = f"translate({num(mx)} {num(my)}) rotate({num(angle)})"
-            return _fallback(0, 0, text, size, fill, style, "middle", attrs, transform)
+            return _fallback(0, 0, text, size, fill, style, "middle", _halo(halo) + attrs, transform)
 
         atlas = font(style)
         pens, total = _layout(text, atlas)
@@ -230,7 +247,7 @@ class Typesetter:
             gid = self._glyph(style, ch, outline)
             uses.append(f'<use href="#{gid}" transform="translate({num(px)} {num(py)}) rotate({num(angle)}) '
                         f'scale({num(scale, 4)}) translate({num(-advance / 2)} 0)"/>')
-        return f'<g fill="{fill}"{attrs}>{"".join(uses)}</g>'
+        return f'<g fill="{fill}"{_halo(halo, scale)}{attrs}>{"".join(uses)}</g>'
 
     def defs(self) -> str:
         """The outlines of every glyph used so far; goes inside the SVG's <defs>."""

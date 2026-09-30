@@ -164,3 +164,11 @@ def test_bounds_follow_the_rotation_of_fallback_text():
         rules.text_stays_inside(svg(upright.replace("rotate(90)", "rotate(0)")))
     with pytest.raises(AssertionError, match="vertically"):
         rules.text_stays_inside(svg(upright.replace("translate(90 25)", "translate(90 40)")))
+
+
+
+def test_strokes_reject_a_fallback_text_outlined_in_font_units():
+    wide = '<text x="10" y="20" font-size="13.5" stroke="#000" stroke-width="259.3" paint-order="stroke">日本</text>'
+    with pytest.raises(AssertionError, match="259.3 px outline"):
+        rules.text_strokes_are_thin(svg(wide))
+    rules.text_strokes_are_thin(svg(wide.replace("259.3", "3.5")))

@@ -146,6 +146,16 @@ def text_stays_inside(svg):
         assert all(-0.01 <= ey <= height + 0.01 for _ex, ey in ends), f"fallback text '{content}' leaves the plate vertically"
 
 
+def text_strokes_are_thin(svg):
+    """T4c. An outline behind fallback text is a few pixels wide, never wide enough to paint over the plate."""
+    for element in ET.fromstring(svg).iter():
+        if element.tag.split("}")[-1] != "text" or "stroke-width" not in element.attrib:
+            continue
+        size = float(element.attrib.get("font-size", 16))
+        width = float(element.attrib["stroke-width"])
+        assert width <= size / 2, f"fallback text '{''.join(element.itertext())}' has a {width} px outline"
+
+
 def placements_are_inside(svg):
     """T4b. Every element placed by translate(x y) in the plate's own coordinates is inside the viewBox.
 

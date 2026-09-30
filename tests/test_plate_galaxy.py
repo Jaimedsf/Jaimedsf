@@ -628,3 +628,12 @@ def test_an_arm_name_outside_the_font_is_kept_short_and_inside_the_plate(mobile,
 def test_an_arm_name_of_ordinary_length_is_whole():
     svg = plate(model=renamed(big_model(arms=2), "Web, Cloud & Infrastructure"))
     assert "#i2026" not in svg
+
+
+@pytest.mark.parametrize("name", ["\U0001F3A8 Frontend", "Học máy", "Ελληνικά", "データ基盤"])
+def test_an_arm_name_outside_the_font_does_not_paint_over_the_galaxy(name):
+    for mobile in (False, True):
+        svg = plate(model=renamed(big_model(arms=3), name), mobile=mobile)
+        rules.text_strokes_are_thin(svg)
+        widths = [float(e.attrib["stroke-width"]) for e in ET.fromstring(svg).iter() if e.tag.endswith("text")]
+        assert widths == [3.5, 3.5, 3.5]

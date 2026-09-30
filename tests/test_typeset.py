@@ -6,6 +6,7 @@ import re
 import pytest
 
 from generator import typeset
+from generator.svg import num
 from generator.typeset import Typesetter, measure, wrap
 
 
@@ -262,3 +263,29 @@ def test_balanced_wrap_never_exceeds_the_width():
     text = "Building tools that make developers' lives easier and their deploys boring"
     for line in wrap(text, 14.5, "italic", 260, balance=True):
         assert measure(line, 14.5, "italic") <= 260
+
+
+# ── an outline behind the letters ────────────────────────────────────────────
+
+def test_a_halo_is_as_wide_as_asked_whatever_the_size_of_the_text():
+    svg = Typesetter().line(10, 20, "Halo", 20, "#fff", halo=("#000", 3, 0.5))
+    scale = 20 / 1000
+    assert f'stroke="#000" stroke-width="{num(3 / scale)}" stroke-opacity=".5"' in svg
+    assert 'paint-order="stroke"' in svg and 'stroke-linejoin="round"' in svg
+
+
+def test_a_halo_on_fallback_text_is_in_pixels_not_in_font_units():
+    svg = Typesetter().line(10, 20, "銀河", 20, "#fff", halo=("#000", 3, 0.5))
+    assert svg.startswith("<text") and 'stroke-width="3"' in svg and 'paint-order="stroke"' in svg
+
+
+def test_a_halo_on_curve_text_follows_the_same_rule():
+    curve = [(0, 0), (100, 0), (200, 0)]
+    outlined = Typesetter().on_curve(curve, "Halo", 10, "#fff", halo=("#000", 3.5, 1))
+    assert f'stroke-width="{num(3.5 / (10 / 1000))}"' in outlined and "stroke-opacity" not in outlined
+    fallback = Typesetter().on_curve(curve, "銀河", 10, "#fff", halo=("#000", 3.5, 1))
+    assert fallback.startswith("<text") and 'stroke-width="3.5"' in fallback
+
+
+def test_without_a_halo_there_is_no_stroke():
+    assert "stroke" not in Typesetter().line(10, 20, "Plain", 20, "#fff")
