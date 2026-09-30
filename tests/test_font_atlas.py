@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_pathdata import trace
+
 FONTS = Path(__file__).resolve().parent.parent / "generator" / "fonts"
 STYLES = ["light", "regular", "medium", "italic"]
 
@@ -58,11 +60,5 @@ def test_outlines_are_compact_integers(style):
 def test_outlines_are_flipped_for_svg_so_capitals_rise_above_the_baseline():
     # In SVG y grows downward: a capital sitting on the baseline has negative y coordinates.
     _adv, d = load("regular")["glyphs"]["H"]
-    ys = []
-    for command, args in re.findall(r"([MLHVQCZ])([^MLHVQCZ]*)", d):
-        numbers = [int(v) for v in re.findall(r"-?\d+", args)]
-        if command == "V":
-            ys += numbers
-        elif command != "H":
-            ys += numbers[1::2]
+    ys = [points[-1] for _command, points in trace(d) if points]
     assert min(ys) < -500 and max(ys) <= 20

@@ -12,7 +12,8 @@ Each atlas is one style of Spectral:
      "glyphs": {char: [advance, d]}, "kern": {"AV": delta}}
 
 `d` is the glyph outline in font units with the y axis already flipped for
-SVG (baseline at y=0, ascenders negative). Kerning comes from HarfBuzz: the
+SVG (baseline at y=0, ascenders negative), written in relative commands
+(tools/pathdata.py), which takes a quarter less room. Kerning comes from HarfBuzz: the
 difference between a pair's shaped advance and the sum of its two advances.
 
 Spectral has no Greek lowercase, which the featured-projects plate uses for
@@ -29,6 +30,8 @@ import uharfbuzz as hb
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
+
+from pathdata import relative          # this file runs as a script, so its folder is on the path
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "assets" / "fonts"
@@ -65,7 +68,7 @@ def _outlines(font: TTFont, codepoints: list[int]) -> dict[str, list]:
             continue
         pen = SVGPathPen(glyph_set, ntos=lambda v: str(int(round(v))))
         glyph_set[name].draw(TransformPen(pen, (1, 0, 0, -1, 0, 0)))
-        glyphs[chr(cp)] = [hmtx[name][0], pen.getCommands()]
+        glyphs[chr(cp)] = [hmtx[name][0], relative(pen.getCommands())]
     return glyphs
 
 
