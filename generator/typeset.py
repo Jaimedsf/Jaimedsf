@@ -14,15 +14,19 @@ from __future__ import annotations
 
 import json
 import math
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
-from generator.svg import esc, num
+from generator.svg import clean, esc, num
 
 FONTS = Path(__file__).resolve().parent / "fonts"
 STYLES = ("light", "regular", "medium", "italic")
 FALLBACK_FAMILY = "Georgia, 'Times New Roman', serif"
 ELLIPSIS = "…"
+
+# A fallback string is drawn in a system serif, which runs wider than Spectral.
+FALLBACK_MARGIN = 1.15
 
 _PREFIX = {"light": "l", "regular": "r", "medium": "m", "italic": "i"}
 _FALLBACK_WEIGHT = {"light": ' font-weight="300"', "medium": ' font-weight="500"'}
@@ -57,14 +61,27 @@ def _layout(text: str, atlas: dict) -> tuple[list[tuple[str, int]], int]:
     return pens, pen
 
 
+def _is_wide(ch: str) -> bool:
+    """CJK, fullwidth forms and emoji take a whole em."""
+    code = ord(ch)
+    return unicodedata.east_asian_width(ch) in ("W", "F") or code >= 0x1F000 or 0x2600 <= code <= 0x27BF
+
+
 def measure(text: str, size: float, style: str = "regular") -> float:
-    """Width of text in pixels at the given size."""
-    atlas = font(style)
+    """Width of text in pixels at the given size.
+
+    Exact when the font covers the text. Otherwise an estimate of how the
+    fallback serif will set it: a full em for wide characters, and the known
+    advances (or the average one) with a margin for the rest.
+    """
+    atlas, text = font(style), clean(text)
     if covers(text, style):
         units = _layout(text, atlas)[1]
     else:
         glyphs = atlas["glyphs"]
-        units = sum(glyphs[ch][0] if ch in glyphs else atlas["avg"] for ch in text)
+        units = sum(atlas["upm"] if _is_wide(ch)
+                    else (glyphs[ch][0] if ch in glyphs else atlas["avg"]) * FALLBACK_MARGIN
+                    for ch in text)
     return units * size / atlas["upm"]
 
 
@@ -77,11 +94,25 @@ def _ellipsize(line: str, size: float, style: str, max_width: float) -> str:
 
 def wrap(text: str, size: float, style: str, max_width: float, max_lines: int = 2) -> list[str]:
     """Break text into lines no wider than max_width; the last line ends in an ellipsis if text was cut."""
-    words = text.split()
+    words = clean(text).split()
     if not words:
         return []
+
+    def pieces(word: str) -> list[str]:
+        """A word wider than the line is broken by characters (text without spaces, long names)."""
+        if measure(word, size, style) <= max_width:
+            return [word]
+        out, piece = [], ""
+        for ch in word:
+            if piece and measure(piece + ch, size, style) > max_width:
+                out.append(piece)
+                piece = ch
+            else:
+                piece += ch
+        return out + [piece]
+
     lines, current = [], ""
-    for word in words:
+    for word in (piece for w in words for piece in pieces(w)):
         candidate = f"{current} {word}" if current else word
         if not current or measure(candidate, size, style) <= max_width:
             current = candidate
@@ -120,6 +151,7 @@ class Typesetter:
     def line(self, x: float, y: float, text: str, size: float, fill: str, style: str = "regular",
              anchor: str = "start", attrs: str = "") -> str:
         """One line of text with its baseline at y. anchor is start, middle or end."""
+        text = clean(text)
         if not text:
             return ""
         if not covers(text, style):
@@ -142,6 +174,7 @@ class Typesetter:
     def on_curve(self, points: list[tuple[float, float]], text: str, size: float, fill: str,
                  style: str = "italic", attrs: str = "") -> str:
         """Text set glyph by glyph along a polyline, centred on its length."""
+        text = clean(text)
         if not text or len(points) < 2:
             return ""
         lengths = [0.0]

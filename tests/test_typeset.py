@@ -207,3 +207,37 @@ def test_measure_estimates_uncovered_text_instead_of_failing():
 def test_curve_text_outside_the_coverage_falls_back_too():
     svg = Typesetter().on_curve(arc(), "日本語", 13.5, "#fff")
     assert svg.startswith("<text") and "rotate(" in svg
+
+
+# ── review fixes: fallback width for wide scripts, and control characters ────
+
+import xml.etree.ElementTree as ET
+
+
+def test_wide_characters_are_estimated_at_one_em_each():
+    assert measure("日本語", 16) >= 3 * 16 * 0.95
+
+
+def test_emoji_is_estimated_at_one_em():
+    assert measure("🚀", 16) >= 16 * 0.95
+
+
+def test_latin_inside_a_fallback_string_gets_a_margin_because_the_system_serif_is_wider():
+    spectral = measure("Deploy rockets", 20)
+    assert measure("Deploy rockets 🚀", 20) >= spectral * 1.1 + 20 * 0.95
+
+
+def test_wrapped_cjk_lines_hold_no_more_characters_than_fit():
+    lines = wrap("日本語の説明" * 12, 14.5, "italic", 230, max_lines=2)
+    assert len(lines) == 2
+    assert all(len(line) <= 230 / 14.5 + 1 for line in lines)
+
+
+def test_control_characters_never_reach_the_svg():
+    svg = "<svg xmlns='http://www.w3.org/2000/svg'>" + Typesetter().line(0, 20, "a\x08b\x00 日本", 16, "#fff") + "</svg>"
+    assert "\x08" not in svg and "\x00" not in svg
+    ET.fromstring(svg)
+
+
+def test_control_characters_do_not_count_as_width():
+    assert measure("ab", 20) == measure("a\x08b", 20)

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import math
+import re
 from xml.sax.saxutils import escape as _xml_escape
+
+# characters XML 1.0 cannot carry; tabs and line breaks become a space
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_BREAKS = re.compile(r"[\t\r\n]+")
 
 
 def num(value: float, places: int = 1) -> str:
@@ -20,9 +25,14 @@ def num(value: float, places: int = 1) -> str:
     return text
 
 
+def clean(text) -> str:
+    """Text without the control characters that would make the SVG malformed."""
+    return _CONTROL.sub("", _BREAKS.sub(" ", str(text)))
+
+
 def esc(text) -> str:
     """Escape text for an SVG text node or a double-quoted attribute."""
-    return _xml_escape(str(text), {'"': "&quot;"})
+    return _xml_escape(clean(text), {'"': "&quot;"})
 
 
 # ── particles ────────────────────────────────────────────────────────────────

@@ -154,3 +154,8 @@ def test_frame_carries_the_motion_css_only_when_there_is_motion():
     assert "<style>@media (prefers-reduced-motion: no-preference){" in frame(SKY, 10, 10, "", "t", "d", motion=moving)
     assert "<style>" not in frame(SKY, 10, 10, "", "t", "d", motion=Motion(False))
     assert "<style>" not in frame(SKY, 10, 10, "", "t", "d")
+
+
+def test_esc_drops_control_characters_that_xml_cannot_hold():
+    assert esc("a\x08b\x00c\x1f") == "abc"
+    assert esc("tab\tand\nnewline") == "tab and newline"
