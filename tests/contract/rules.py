@@ -5,6 +5,7 @@ by running the image: an empty first frame, particles that fall apart under
 pinch zoom, a frame rate cut to a third.
 """
 
+import math
 import re
 import xml.etree.ElementTree as ET
 
@@ -16,6 +17,7 @@ SMIL_TAGS = {"animate", "animateTransform", "animateMotion", "set"}
 _STYLE = re.compile(r"<style>(.*?)</style>", re.S)
 _INLINE_ZERO = re.compile(r"(?:^|;)\s*opacity\s*:\s*0*\.?0*\s*(?:;|$)")
 _TRANSLATE = re.compile(r"^translate\((-?[\d.]+)[ ,](-?[\d.]+)\)")
+_ROTATE = re.compile(r"rotate\((-?[\d.]+)\)")
 _PARTICLES = 5          # a path with this many dots is a particle field
 
 
@@ -135,9 +137,13 @@ def text_stays_inside(svg):
         x = float(moved.group(1)) if moved else float(attrib.get("x", 0))
         y = float(moved.group(2)) if moved else float(attrib.get("y", 0))
         anchor = attrib.get("text-anchor", "start")
-        left = x - (span if anchor == "end" else span / 2 if anchor == "middle" else 0)
-        assert left >= 0 and left + span <= width, f"fallback text '{content}' leaves the plate sideways"
-        assert 0 <= y <= height, f"fallback text '{content}' leaves the plate vertically"
+        turned = _ROTATE.search(attrib.get("transform", ""))
+        angle = math.radians(float(turned.group(1))) if turned else 0.0
+        # the line runs from `begin` to `begin + span` along its own direction
+        begin = -(span if anchor == "end" else span / 2 if anchor == "middle" else 0)
+        ends = [(x + s * math.cos(angle), y + s * math.sin(angle)) for s in (begin, begin + span)]
+        assert all(-0.01 <= ex <= width + 0.01 for ex, _ey in ends), f"fallback text '{content}' leaves the plate sideways"
+        assert all(-0.01 <= ey <= height + 0.01 for _ex, ey in ends), f"fallback text '{content}' leaves the plate vertically"
 
 
 def placements_are_inside(svg):

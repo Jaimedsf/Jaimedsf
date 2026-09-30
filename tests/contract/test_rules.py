@@ -155,3 +155,12 @@ def test_bounds_reject_an_element_placed_outside_the_plate():
 
 def test_bounds_ignore_coordinates_inside_a_transformed_group():
     rules.placements_are_inside(svg('<g transform="translate(50 25)"><g transform="translate(-300 0)"/></g>'))
+
+
+def test_bounds_follow_the_rotation_of_fallback_text():
+    upright = '<text transform="translate(90 25) rotate(90)" font-size="10" text-anchor="middle">銀河銀河</text>'
+    rules.text_stays_inside(svg(upright))                 # 40 px of text standing up near the right edge fit
+    with pytest.raises(AssertionError, match="sideways"):
+        rules.text_stays_inside(svg(upright.replace("rotate(90)", "rotate(0)")))
+    with pytest.raises(AssertionError, match="vertically"):
+        rules.text_stays_inside(svg(upright.replace("translate(90 25)", "translate(90 40)")))

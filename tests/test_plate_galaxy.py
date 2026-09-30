@@ -600,3 +600,31 @@ def test_star_names_never_cover_an_arms_name():
         assert chips and letters
         assert not any(left <= x <= left + w and top <= y <= top + h
                        for left, top, w, h in chips for x, y in letters)
+
+
+def renamed(model, name):
+    return replace(model, arms=tuple(Arm(name, arm.repos) for arm in model.arms))
+
+
+@pytest.mark.parametrize("arms", [2, 6])
+@pytest.mark.parametrize("mobile", [False, True])
+def test_an_endless_arm_name_is_cut_and_stays_inside_the_plate(mobile, arms):
+    svg = plate(model=renamed(big_model(arms=arms), "Distributed Systems, Observability & Platform " * 2), mobile=mobile)
+    rules.placements_are_inside(svg)
+    assert svg.count('<use href="#i2026" transform="translate') == arms        # each name ends in an ellipsis
+    letters = len(re.findall(r'<use href="#i[0-9a-f]+" transform="translate', svg))
+    assert letters < 40 * arms
+
+
+@pytest.mark.parametrize("arms", [2, 6])
+@pytest.mark.parametrize("mobile", [False, True])
+def test_an_arm_name_outside_the_font_is_kept_short_and_inside_the_plate(mobile, arms):
+    svg = plate(model=renamed(big_model(arms=arms), "フロントエンドとデザインシステムの研究開発"), mobile=mobile)
+    rules.text_stays_inside(svg)
+    names = [e for e in ET.fromstring(svg).iter() if e.tag.endswith("text")]
+    assert len(names) == arms and all(e.text.endswith("…") and len(e.text) <= 9 for e in names)
+
+
+def test_an_arm_name_of_ordinary_length_is_whole():
+    svg = plate(model=renamed(big_model(arms=2), "Web, Cloud & Infrastructure"))
+    assert "#i2026" not in svg

@@ -98,6 +98,9 @@ def test_text_outside_the_font_still_stays_inside_the_plate(case):
     config["profile"]["tagline"] = "オープンソースの探検家 🚀"
     for project in config["projects"]:
         project["description"] = "コズミックなデザイントークンとダークファーストのテーマを備えたコンポーネントライブラリ " * 3
+    for arm in config["galaxy_arms"]:
+        arm["name"] = "フロントエンドとデザインシステム"
+        arm["items"] = ["コンポーネントライブラリ", "デザイントークン", "ダークファーストのテーマ"] * 2
     svg = render(stem, palette, mode, mobile, config=config)
     rules.text_stays_inside(svg)
     rules.placements_are_inside(svg)

@@ -14,5 +14,21 @@
  "projects-constellation-mobile[cyanotype]": "be2df8cbcd237f72f3f94f720c21a90b0769bc4ad17bb2339a6942be89aaa484",
  "projects-constellation-mobile[deep-sky]": "15c523828b29345fbd783d39f72ca0f01cfbd27e2f448e15875abc1fc5303f52",
  "projects-constellation[cyanotype]": "2575fa245b474985ebaa9c059e9bc8c01d662fb0918f81f02d2afb38a9ff403a",
- "projects-constellation[deep-sky]": "f7035b3eec0882449654c6d19dc9ed0502c5d19d8ac87f8f191aba9fa4fdc60e"
+ "projects-constellation[deep-sky]": "f7035b3eec0882449654c6d19dc9ed0502c5d19d8ac87f8f191aba9fa4fdc60e",
+ "stats-card-light[cyanotype]": "96e064b033e0e965fb58ebcbd45bd8a0912de3ef5692b5622aa97eb9baa11f07",
+ "stats-card-light[deep-sky]": "132123b6ff82894a891182decc4e16dca10ad0411acf7606525c667624be95da",
+ "stats-card-mobile-light[cyanotype]": "ef3a54e5f707af106a20824bf35f7e9181894025d314535228b4674baa9b3bc8",
+ "stats-card-mobile-light[deep-sky]": "66571991800d2fd2d6d46b940127d61ce41f89cc591de2265323fd9507a5982d",
+ "stats-card-mobile[cyanotype]": "bc98b1907bd027957867924c58a6666a1fc1fed6243a3dc78744bdf4697c7fa7",
+ "stats-card-mobile[deep-sky]": "a1e6a47444edf3b198d78fc05fc599072ba9ddb076b14af099153bdba80572dc",
+ "stats-card[cyanotype]": "e2cd6b4ea1c1f960550f8c267b6f2f65327417b7028bb9869a9fe2e4adee703f",
+ "stats-card[deep-sky]": "05a7a91f9da776a38beb2ddf6559e1265d4df325f1b5954ead8fcb2cefb4422b",
+ "tech-stack-light[cyanotype]": "bdb29dc3a462fd55450d82a111693c782c85e5567a60bcb567a05983099676c1",
+ "tech-stack-light[deep-sky]": "75e0c1384f276d549c162497b371f2b4a548a812b82d52ceced7b439f3b72cef",
+ "tech-stack-mobile-light[cyanotype]": "07661c225c814bf39f05af3c3c3c31e72fe211772e0b5eec08cea5defaf2cfdc",
+ "tech-stack-mobile-light[deep-sky]": "7a55bea21854e49aa3f9982117b19dfbba007bcc89c80274584bc55024dab9e7",
+ "tech-stack-mobile[cyanotype]": "4086b9ef9f9b25bf7fadfda66281d2a4f44fe441f9bb89ecadf6243ebe70ef02",
+ "tech-stack-mobile[deep-sky]": "ff5e3d1c0da3f68e6a973ca293a91204e5cf058316d25fe306de666d2f018b51",
+ "tech-stack[cyanotype]": "bbd8c6bb889396fb7f965f932db0f4f5fd18d3472c4f607769a6b8915459e86d",
+ "tech-stack[deep-sky]": "410373732033e2c151ae06591ffcb84e0d9f8ecba6e6ef149c9068e38024eddd"
 }

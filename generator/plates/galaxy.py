@@ -19,8 +19,8 @@ import random
 
 from generator.model import recency
 from generator.motion import Motion
-from generator.svg import PARTICLE_GROUP, dots, dots_d, frame, num, spike_half, star, star_defs
-from generator.typeset import Typesetter, font, measure, wrap
+from generator.svg import PARTICLE_GROUP, clean, dots, dots_d, frame, num, spike_half, star, star_defs
+from generator.typeset import Typesetter, covers, font, measure, wrap
 
 PHI = math.pi / 3                 # tile step along an arm
 R0 = 20.0                         # radius where the spiral starts
@@ -258,6 +258,8 @@ def place_stars(model, geo: Geometry, rng) -> dict:
 LABEL_MAX_WIDTH = 170             # a longer repository name is cut with an ellipsis
 LABEL_STYLE = "medium"
 ARM_NAME_AT = 0.82                # where along an arm (fraction of its cut) its name is centred
+ARM_NAME_MAX_WIDTH = 180          # a longer focus-area name is cut with an ellipsis
+ARM_NAME_FALLBACK_WIDTH = 110     # outside the font a name cannot bend along the arm, so it is kept shorter
 
 
 def label_size(geo: Geometry) -> float:
@@ -314,8 +316,14 @@ def place_labels(names: list, positions: dict, stars: dict, geo: Geometry, obsta
     return placed
 
 
+def arm_label(name: str, geo: Geometry) -> str:
+    """A focus area's name as it is written along its arm: whole if it is short enough, cut otherwise."""
+    limit = ARM_NAME_MAX_WIDTH if covers(clean(name), "italic") else ARM_NAME_FALLBACK_WIDTH
+    return (wrap(name, label_size(geo), "italic", limit, max_lines=1) or [""])[0]
+
+
 def arm_name_paths(model, geo: Geometry) -> list:
-    """[(arm name, points)]: a short stretch of curve just outside each named arm, to set its name along.
+    """[(name as written, points)]: a short stretch of curve just outside each named arm, to set its name along.
 
     The points always run left to right so the name is never upside down. In
     the upper half the curve hugs the arm from outside; in the lower half it
@@ -325,16 +333,17 @@ def arm_name_paths(model, geo: Geometry) -> list:
     per_radius = math.sqrt(1 + geo.b ** 2) / geo.b          # arc length travelled per unit of radius
     paths = []
     for index, (arm, cut) in enumerate(zip(model.arms, arm_cuts(model, geo))):
-        if not arm.name:
+        label = arm_label(arm.name, geo) if arm.name else ""
+        if not label:
             continue
         centre = cut * ARM_NAME_AT
         stretch = 1.09 if geo.point(index, centre)[1] < geo.cy else 1.17
-        half = (measure(arm.name, size, "italic") / 2 + 14) / (per_radius * stretch)
+        half = (measure(label, size, "italic") / 2 + 14) / (per_radius * stretch)
         lo, hi = max(centre - half, R0 * 1.5), centre + half
         points = [geo.point(index, lo + (hi - lo) * q / 24, stretch) for q in range(25)]
         if points[-1][0] < points[0][0]:
             points.reverse()
-        paths.append((arm.name, points))
+        paths.append((label, points))
     return paths
 
 
