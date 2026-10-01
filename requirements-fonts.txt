@@ -1,0 +1,4 @@
+# Only for regenerating generator/fonts/*.json (make fonts). Needs Python 3.11 or newer.
+# Generating SVGs and running the tests never need these.
+fonttools==4.66.1
+uharfbuzz==0.56.2
